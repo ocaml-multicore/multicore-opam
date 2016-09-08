@@ -7,3 +7,5 @@ packages/lwt/lwt.2.5.1/url 160292d640e76cadec73491d4893442f 0o664
 packages/lwt/lwt.2.5.1/opam 72c3286e0902359a53a9b43d47ff3c7b 0o664
 packages/lwt/lwt.2.5.1/findlib 7ae7ce7048de53dc01e9ecaef1be401e 0o664
 packages/lwt/lwt.2.5.1/descr 5f1447175272c9b58d0bece60980f1a8 0o664
+compilers/4.02.2+multicore/4.02.2+multicore.descr 1f4a6465b8b6294337349aa926c61827 0o664
+compilers/4.02.2+multicore/4.02.2+multicore.comp 020d35f3ad0f7665f842372b3cc2bed7 0o664
