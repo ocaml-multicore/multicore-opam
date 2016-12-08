@@ -39,5 +39,9 @@ packages/kcas/kcas.0.1.1/url a27e2f0a489f0cdf997cf86af7395bfa 0o644
 packages/kcas/kcas.0.1.1/opam c19c441527340f5b1364ac0c2b009fb1 0o644
 packages/kcas/kcas.0.1.1/findlib 73de39e1f60ba27fc912ec1ccb374f36 0o664
 packages/kcas/kcas.0.1.1/descr aa7781dc42d96d1bee44b741b78f9987 0o644
+packages/aeio/aeio.0.1.0/url 8e8e835f9b5ea56071ee6fbc3669bb8f 0o644
+packages/aeio/aeio.0.1.0/opam 350bc909052cbf68778fffd9393ea671 0o644
+packages/aeio/aeio.0.1.0/findlib fe8d037cbc7cdfcb68525e2f106e71c3 0o664
+packages/aeio/aeio.0.1.0/descr b63deaf406966f19de5392087e685166 0o644
 compilers/4.02.2+multicore/4.02.2+multicore.descr 1f4a6465b8b6294337349aa926c61827 0o664
 compilers/4.02.2+multicore/4.02.2+multicore.comp 020d35f3ad0f7665f842372b3cc2bed7 0o664
