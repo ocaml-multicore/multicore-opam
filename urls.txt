@@ -1,4 +1,8 @@
 repo 7a413dfe2a2288157ac69806ca20110a 0o664
+packages/reagents/reagents.0.1.1/url 20f6c99509e6f46b1f01f0f08f8d9c1a 0o644
+packages/reagents/reagents.0.1.1/opam cd1987b5769ab52d0a48f8a61ff98e6a 0o644
+packages/reagents/reagents.0.1.1/findlib 94d12b90170890b005fb518c7fe00e71 0o664
+packages/reagents/reagents.0.1.1/descr 1876eae5a00f495f4d268039460637ab 0o644
 packages/reagents/reagents.0.1.0/url 2102ab93e9a19c64d9622e7fe666adcb 0o644
 packages/reagents/reagents.0.1.0/opam cd1987b5769ab52d0a48f8a61ff98e6a 0o644
 packages/reagents/reagents.0.1.0/findlib 94d12b90170890b005fb518c7fe00e71 0o664
