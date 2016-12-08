@@ -1,4 +1,8 @@
 repo 7a413dfe2a2288157ac69806ca20110a 0o664
+packages/reagents/reagents.0.1.0/url 2102ab93e9a19c64d9622e7fe666adcb 0o644
+packages/reagents/reagents.0.1.0/opam cd1987b5769ab52d0a48f8a61ff98e6a 0o644
+packages/reagents/reagents.0.1.0/findlib 94d12b90170890b005fb518c7fe00e71 0o664
+packages/reagents/reagents.0.1.0/descr 1876eae5a00f495f4d268039460637ab 0o644
 packages/ppx_tools/ppx_tools.5.0+4.02.3/url cafd53330b2dee5c7b2857cadaa28042 0o664
 packages/ppx_tools/ppx_tools.5.0+4.02.3/opam 209635911b4438385046b2982800e42b 0o664
 packages/ppx_tools/ppx_tools.5.0+4.02.3/findlib 56302b4dd9ff737c6105b5265aff5a46 0o664
@@ -7,7 +11,6 @@ packages/lwt/lwt.2.5.1/url 160292d640e76cadec73491d4893442f 0o664
 packages/lwt/lwt.2.5.1/opam 72c3286e0902359a53a9b43d47ff3c7b 0o664
 packages/lwt/lwt.2.5.1/findlib 7ae7ce7048de53dc01e9ecaef1be401e 0o664
 packages/lwt/lwt.2.5.1/descr 5f1447175272c9b58d0bece60980f1a8 0o664
-packages/lwt/lwt.2.5.1/.findlib.swp 656b2dc037bc2989dbe2e6cdb0dd4841 0o644
 packages/lockfree/lockfree.0.1.1/url 4319c051d8f85e26fa7e0a733761cef8 0o644
 packages/lockfree/lockfree.0.1.1/opam 9d879383dec31dbdee764b401381e5fd 0o644
 packages/lockfree/lockfree.0.1.1/findlib 3e3420287a6fa004926a42f030c205c2 0o664
