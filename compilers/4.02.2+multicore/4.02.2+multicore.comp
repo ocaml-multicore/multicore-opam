@@ -2,7 +2,7 @@ opam-version: "1"
 version: "4.02.2"
 src: "https://github.com/ocamllabs/ocaml-multicore/archive/master.tar.gz"
 build: [
-  ["./configure" "-prefix" "%{prefix}%"]
+  ["./configure" "-prefix" "%{prefix}%" "-with-debug-runtime"]
   ["%{make}%" "world.opt"]
   ["%{make}%" "install"]
 ]
