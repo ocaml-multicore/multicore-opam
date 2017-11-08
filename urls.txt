@@ -47,10 +47,11 @@ packages/kcas/kcas.0.1.1/url a27e2f0a489f0cdf997cf86af7395bfa 0o644
 packages/kcas/kcas.0.1.1/opam c19c441527340f5b1364ac0c2b009fb1 0o644
 packages/kcas/kcas.0.1.1/findlib 73de39e1f60ba27fc912ec1ccb374f36 0o644
 packages/kcas/kcas.0.1.1/descr aa7781dc42d96d1bee44b741b78f9987 0o644
-packages/jbuilder/1.0+beta16/url 0e5ddb0d8dfc562ef2e45e41d9bf267b 0o644
-packages/jbuilder/1.0+beta16/opam d7e3c8c98fdd5bb826d6ab86923c6673 0o644
-packages/jbuilder/1.0+beta16/multicore.tar.gz 4853fdd41e1d30b8ec34de5ff6f7687d 0o644
-packages/jbuilder/1.0+beta16/descr 59e5fdef110add2b9009ae2d437370ac 0o644
+packages/jbuilder/jbuilder.1.0+beta16/url 0e5ddb0d8dfc562ef2e45e41d9bf267b 0o644
+packages/jbuilder/jbuilder.1.0+beta16/opam~ d7e3c8c98fdd5bb826d6ab86923c6673 0o644
+packages/jbuilder/jbuilder.1.0+beta16/opam d7e3c8c98fdd5bb826d6ab86923c6673 0o644
+packages/jbuilder/jbuilder.1.0+beta16/multicore.tar.gz 4853fdd41e1d30b8ec34de5ff6f7687d 0o644
+packages/jbuilder/jbuilder.1.0+beta16/descr 59e5fdef110add2b9009ae2d437370ac 0o644
 packages/aeio/aeio.0.2.0/url 96b2a36a1c5f879eebd01511a83b2834 0o644
 packages/aeio/aeio.0.2.0/opam 350bc909052cbf68778fffd9393ea671 0o644
 packages/aeio/aeio.0.2.0/findlib fe8d037cbc7cdfcb68525e2f106e71c3 0o644
