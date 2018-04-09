@@ -3,6 +3,10 @@ packages/ssl/ssl.0.5.3/url 6557600d25f12cb7d398fcfa4cc326f4 0o644
 packages/ssl/ssl.0.5.3/opam a1273d1be3ab55501340b76d3d8a654b 0o644
 packages/ssl/ssl.0.5.3/findlib 5bb3cda73bfe3d2bcd6af60758e45980 0o644
 packages/ssl/ssl.0.5.3/descr 891ff9275e7013b3336fb36eb0dd06af 0o644
+packages/reagents/reagents.0.3.0/url 813ccd21baa13f21966795d700d17c95 0o644
+packages/reagents/reagents.0.3.0/opam 8b6fc4c36c86e0e910b28e12070732c4 0o644
+packages/reagents/reagents.0.3.0/findlib 94d12b90170890b005fb518c7fe00e71 0o644
+packages/reagents/reagents.0.3.0/descr 1876eae5a00f495f4d268039460637ab 0o644
 packages/reagents/reagents.0.1.1/url 20f6c99509e6f46b1f01f0f08f8d9c1a 0o644
 packages/reagents/reagents.0.1.1/opam cd1987b5769ab52d0a48f8a61ff98e6a 0o644
 packages/reagents/reagents.0.1.1/findlib 94d12b90170890b005fb518c7fe00e71 0o644
@@ -48,9 +52,7 @@ packages/kcas/kcas.0.1.1/opam c19c441527340f5b1364ac0c2b009fb1 0o644
 packages/kcas/kcas.0.1.1/findlib 73de39e1f60ba27fc912ec1ccb374f36 0o644
 packages/kcas/kcas.0.1.1/descr aa7781dc42d96d1bee44b741b78f9987 0o644
 packages/jbuilder/jbuilder.1.0+beta16/url 0e5ddb0d8dfc562ef2e45e41d9bf267b 0o644
-packages/jbuilder/jbuilder.1.0+beta16/opam~ d7e3c8c98fdd5bb826d6ab86923c6673 0o644
 packages/jbuilder/jbuilder.1.0+beta16/opam d7e3c8c98fdd5bb826d6ab86923c6673 0o644
-packages/jbuilder/jbuilder.1.0+beta16/multicore.tar.gz 4853fdd41e1d30b8ec34de5ff6f7687d 0o644
 packages/jbuilder/jbuilder.1.0+beta16/descr 59e5fdef110add2b9009ae2d437370ac 0o644
 packages/aeio/aeio.0.2.0/url 96b2a36a1c5f879eebd01511a83b2834 0o644
 packages/aeio/aeio.0.2.0/opam 350bc909052cbf68778fffd9393ea671 0o644
@@ -60,5 +62,9 @@ packages/aeio/aeio.0.1.0/url 8e8e835f9b5ea56071ee6fbc3669bb8f 0o644
 packages/aeio/aeio.0.1.0/opam 350bc909052cbf68778fffd9393ea671 0o644
 packages/aeio/aeio.0.1.0/findlib fe8d037cbc7cdfcb68525e2f106e71c3 0o644
 packages/aeio/aeio.0.1.0/descr b63deaf406966f19de5392087e685166 0o644
+compilers/4.06.1+multicore/4.06.1+multicore.descr 248f7dc795b9972c3b32d40547c24b0e 0o644
+compilers/4.06.1+multicore/4.06.1+multicore.comp 8349b62648ec37e82471f9767adf7730 0o644
+compilers/4.04.2+multicore/4.04.2+multicore.descr e76a2adba465dc0b5b2fb4d5dbd278b3 0o644
+compilers/4.04.2+multicore/4.04.2+multicore.comp b1bd2714b131221ddb2369073bfd5a10 0o644
 compilers/4.02.2+multicore/4.02.2+multicore.descr 1f4a6465b8b6294337349aa926c61827 0o644
-compilers/4.02.2+multicore/4.02.2+multicore.comp 510bbb70b812e2153af91ada2eb91124 0o644
+compilers/4.02.2+multicore/4.02.2+multicore.comp 914ca838dbd8593a2ddf06e55f77d357 0o644
