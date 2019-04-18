@@ -1,4 +1,4 @@
-opam-version: "1.2"
+opam-version: "2.0"
 name: "omake"
 maintainer: "Gerd Stolpmann <gerd@gerd-stolpmann.de>"
 authors: [
@@ -8,7 +8,7 @@ authors: [
 ]
 
 license: "GPL2"
-dev-repo: "https://github.com/ocaml-omake/omake.git"
+dev-repo: "git+https://github.com/ocaml-omake/omake.git"
 homepage: "http://projects.camlcity.org/projects/omake.html"
 bug-reports: "https://github.com/ocaml-omake/issues"
 
@@ -27,5 +27,13 @@ remove: [
   [ "rm" "-rf" "%{prefix}%/lib/omake" ]
 ]
 
-depends: ["ocamlfind"]
-available: [ ocaml-version >= "4.03.0" ]
+depends: [
+  "ocaml" {>= "4.03.0"}
+  "ocamlfind"
+]
+flags: light-uninstall
+url {
+  src:
+    "https://github.com/jhwoodyatt/omake/archive/omake-0.10.3+multicore-1.zip"
+  checksum: "md5=c7423be1daf9e28c31ec9f3a4bf9b841"
+}

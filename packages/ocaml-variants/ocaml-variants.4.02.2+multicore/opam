@@ -1,0 +1,21 @@
+opam-version: "2.0"
+synopsis: "OCaml 4.02.2, with support for multicore"
+maintainer: "platform@lists.ocaml.org"
+depends: [
+  "ocaml" {= "4.02.2" & post}
+  "base-unix" {post}
+  "base-bigarray" {post}
+  "base-threads" {post}
+]
+conflict-class: "ocaml-core-compiler"
+flags: compiler
+setenv: CAML_LD_LIBRARY_PATH = "%{lib}%/stublibs"
+build: [
+  ["./configure" "-prefix" "%{prefix}%" "-with-debug-runtime"]
+  ["%{make}%" "world.opt"]
+]
+install: ["%{make}%" "install"]
+url {
+  src: "https://github.com/ocamllabs/ocaml-multicore/archive/4.02.2.tar.gz"
+  checksum: "md5=d3881e66b5ccb825dd0eb39b975cc841"
+}

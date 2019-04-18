@@ -1,18 +1,27 @@
-opam-version: "1.2"
+opam-version: "2.0"
 maintainer: "KC Sivaramakrishnan <sk826@cl.cam.ac.uk>"
 authors: ["KC Sivaramakrishnan <sk826@cl.cam.ac.uk>"]
 homepage: "https://github.com/kayceesrk/kcas"
 doc: "https://kayceesrk.github.io/kcas/doc"
 license: "ISC"
-dev-repo: "https://github.com/kayceesrk/kcas.git"
+dev-repo: "git+https://github.com/kayceesrk/kcas.git"
 bug-reports: "https://github.com/kayceesrk/kcas/issues"
-tags: []
-available: [ ocaml-version >= "4.01.0"]
 depends: [
+  "ocaml" {>= "4.01.0"}
   "ocamlfind" {build}
   "ocamlbuild" {build}
-  "topkg" {build} ]
-depopts: []
+  "topkg" {build}
+]
 build: [
   "ocaml" "pkg/pkg.ml" "build"
           "--pinned" pinned ]
+synopsis: "Multi-word compare-and-swap library"
+description: """
+kcas is TODO
+
+kcas is distributed under the ISC license."""
+url {
+  src:
+    "https://github.com/kayceesrk/kcas/releases/download/0.1.2/kcas-0.1.2.tbz"
+  checksum: "md5=d9c691544d53f409a243a307806b505d"
+}

@@ -40,3 +40,7 @@ several opam roots/switches simultaneously. This helps maintaining
 packages across several versions of OCaml and gives cross-compilation
 for free.
 """
+url {
+  src: "https://github.com/sadiqj/dune/archive/unravel.zip"
+  checksum: "md5=e0e980d036211676ef7f740c30d9780a"
+}
