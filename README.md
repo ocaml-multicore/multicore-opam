@@ -16,5 +16,5 @@ opam install ocaml-variants.4.06.1+multicore
 
 ```
 opam remote add multicore https://github.com/ocamllabs/multicore-opam.git
-opam switch 4.06.1+multicore 
+opam switch 4.06.1+multicore
 ```
