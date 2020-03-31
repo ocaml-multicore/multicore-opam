@@ -6,7 +6,7 @@ OPAM repo for OCaml multicore development
 ### OPAM 2.0
 
 ```
-opam repository add multicore https://github.com/ocamllabs/multicore-opam.git
+opam repository add multicore https://github.com/ocamllabs/multicore-opam.git --all
 opam update
 opam switch create 4.06.1+multicore --empty
 opam switch 4.06.1+multicore
