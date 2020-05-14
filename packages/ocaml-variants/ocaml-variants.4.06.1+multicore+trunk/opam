@@ -1,5 +1,5 @@
 opam-version: "2.0"
-synopsis: "Multicore trunk"
+synopsis: "Multicore parallel_minor_gc_4_06"
 maintainer: "platform@lists.ocaml.org"
 depends: [
   "ocaml" {= "4.06.1" & post}
@@ -16,5 +16,5 @@ build: [
 ]
 install: ["%{make}%" "install"]
 url {
-  src: "https://github.com/ocamllabs/ocaml-multicore/archive/parallel_minor_gc.tar.gz"
+  src: "https://github.com/ocamllabs/ocaml-multicore/archive/parallel_minor_gc_4_06.tar.gz"
 }
