@@ -10,14 +10,6 @@ opam update
 opam switch create 4.06.1+multicore --repositories=multicore=git+https://github.com/ocamllabs/multicore-opam.git,default
 ```
 
-### OPAM 1.2
-
-```
-opam remote add multicore https://github.com/ocamllabs/multicore-opam.git
-opam update
-opam switch 4.06.1+multicore
-```
-
 ## Installing dune
 
 There is a version of dune.1.9.1 that the Multicore OCaml compiler can build.
