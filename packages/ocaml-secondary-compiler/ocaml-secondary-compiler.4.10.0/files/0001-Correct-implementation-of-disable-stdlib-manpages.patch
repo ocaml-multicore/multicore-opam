@@ -1,0 +1,55 @@
+From 86616abe604a6f1d3f25b670ac6a3202a7d7720f Mon Sep 17 00:00:00 2001
+From: David Allsopp <david.allsopp@metastack.com>
+Date: Wed, 26 Feb 2020 15:07:17 +0000
+Subject: [PATCH] Correct implementation of --disable-stdlib-manpages
+
+---
+ Makefile          | 4 ++--
+ ocamldoc/Makefile | 8 +-------
+ 2 files changed, 3 insertions(+), 9 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 802196d1e..8a3b33d95 100644
+--- a/Makefile
++++ b/Makefile
+@@ -423,7 +423,7 @@ opt.opt: checknative
+ 	$(MAKE) otherlibrariesopt
+ 	$(MAKE) ocamllex.opt ocamltoolsopt ocamltoolsopt.opt $(OCAMLDOC_OPT) \
+ 	  ocamltest.opt
+-ifneq "$(WITH_OCAMLDOC)" ""
++ifeq "$(WITH_OCAMLDOC)-$(STDLIB_MANPAGES)" "ocamldoc-true"
+ 	$(MAKE) manpages
+ endif
+ 
+@@ -453,7 +453,7 @@ coreboot:
+ all: coreall
+ 	$(MAKE) ocaml
+ 	$(MAKE) otherlibraries $(WITH_DEBUGGER) $(WITH_OCAMLDOC) ocamltest
+-ifneq "$(WITH_OCAMLDOC)" ""
++ifeq "$(WITH_OCAMLDOC)-$(STDLIB_MANPAGES)" "ocamldoc-true"
+ 	$(MAKE) manpages
+ endif
+ 
+diff --git a/ocamldoc/Makefile b/ocamldoc/Makefile
+index 4a6e0fc6c..c828e6c9c 100644
+--- a/ocamldoc/Makefile
++++ b/ocamldoc/Makefile
+@@ -185,14 +185,8 @@ LIBCMOFILES = $(CMOFILES)
+ LIBCMXFILES = $(LIBCMOFILES:.cmo=.cmx)
+ LIBCMIFILES = $(LIBCMOFILES:.cmo=.cmi)
+ 
+-ifeq "$(STDLIB_MANPAGES)" "true"
+-DOCS_TARGET = manpages
+-else
+-DOCS_TARGET =
+-endif
+-
+ .PHONY: all
+-all: lib exe generators $(DOCS_TARGET)
++all: lib exe generators
+ 
+ .PHONY: exe
+ exe: $(OCAMLDOC)
+-- 
+2.17.1
+
