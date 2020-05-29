@@ -7,7 +7,7 @@ OPAM repo for OCaml multicore development
 
 ```
 opam update
-opam switch create 4.06.1+multicore --repositories=multicore=git+https://github.com/ocamllabs/multicore-opam.git,default
+opam switch create 4.10.0+multicore --repositories=multicore=git+https://github.com/ocamllabs/multicore-opam.git,default
 ```
 
 ## Installing dune
