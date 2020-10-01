@@ -11,5 +11,5 @@ opam switch create 4.10.0+multicore --packages=ocaml-variants.4.10.0+multicore,o
 ## Installing domainslib
 
 ```
-opam install dune.2.6.2 domainslib
+opam install dune.2.7.1 domainslib
 ```
