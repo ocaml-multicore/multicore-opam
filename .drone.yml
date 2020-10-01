@@ -15,4 +15,4 @@ steps:
   - opam --version
   - opam switch
   - opam list
-  - opam install dune.2.6.2 domainslib
+  - opam install dune domainslib
