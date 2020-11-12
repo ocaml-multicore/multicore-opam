@@ -1,0 +1,118 @@
+From e23de59e77f6b3a524f28dd69f6a78c5cddfe97f Mon Sep 17 00:00:00 2001
+From: "matt@pallissard.net" <matt@pallissard.net>
+Date: Tue, 17 Nov 2020 21:44:16 -0800
+Subject: [PATCH 07/16] multicore: initial merlin_specific import
+
+---
+ src/ocaml/merlin_specific/410+multicore/browse_raw.ml  |  8 ++++++--
+ src/ocaml/merlin_specific/410+multicore/raw_compat.ml  |  2 +-
+ .../merlin_specific/410+multicore/tail_analysis.ml     |  4 ++--
+ src/ocaml/merlin_specific/410+multicore/typer_raw.ml   | 10 ++++++++++
+ 4 files changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/src/ocaml/merlin_specific/410+multicore/browse_raw.ml b/src/ocaml/merlin_specific/410+multicore/browse_raw.ml
+index c451de40..2c4d23d0 100644
+--- a/src/ocaml/merlin_specific/410+multicore/browse_raw.ml
++++ b/src/ocaml/merlin_specific/410+multicore/browse_raw.ml
+@@ -317,8 +317,8 @@ let of_expression_desc loc = function
+         | (_,None) -> id_fold
+         | (_,Some e) -> of_expression e)
+       ls
+-  | Texp_match (e,cs,_)
+-  | Texp_try (e,cs) ->
++  | Texp_match (e,cs,_,_)
++  | Texp_try (e,cs,_) ->
+     of_expression e **
+     list_fold of_case cs
+   | Texp_tuple es | Texp_construct (_,_,es) | Texp_array es ->
+@@ -442,6 +442,8 @@ and of_structure_item_desc = function
+     list_fold (fun x -> app (Module_binding x)) mbs
+   | Tstr_modtype mtd ->
+     app (Module_type_declaration mtd)
++  | Tstr_effect eff ->
++    app (Extension_constructor eff)
+   | Tstr_class cds ->
+     list_fold (fun (cd,_) -> app (Class_declaration cd)) cds
+   | Tstr_class_type ctds ->
+@@ -485,6 +487,8 @@ and of_signature_item_desc = function
+     list_fold (fun md -> app (Module_declaration md)) mds
+   | Tsig_modtype mtd ->
+     app (Module_type_declaration mtd)
++  | Tsig_effect eff ->
++    app (Extension_constructor eff)
+   | Tsig_include i ->
+     app (Include_description i)
+   | Tsig_class cds ->
+diff --git a/src/ocaml/merlin_specific/410+multicore/raw_compat.ml b/src/ocaml/merlin_specific/410+multicore/raw_compat.ml
+index 9b6012b2..e441124a 100644
+--- a/src/ocaml/merlin_specific/410+multicore/raw_compat.ml
++++ b/src/ocaml/merlin_specific/410+multicore/raw_compat.ml
+@@ -160,7 +160,7 @@ let texp_function_cases = function
+   | _ -> assert false
+ 
+ let tmatch_scrutinee = function
+-  | Typedtree.Texp_match (e, _, _) -> e
++  | Typedtree.Texp_match (e, _, _, _) -> e
+   | _ -> assert false
+ 
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+diff --git a/src/ocaml/merlin_specific/410+multicore/tail_analysis.ml b/src/ocaml/merlin_specific/410+multicore/tail_analysis.ml
+index 0c9680d6..58e52105 100644
+--- a/src/ocaml/merlin_specific/410+multicore/tail_analysis.ml
++++ b/src/ocaml/merlin_specific/410+multicore/tail_analysis.ml
+@@ -55,8 +55,8 @@ let expr_tail_positions = function
+   | Texp_while _ | Texp_for _ | Texp_send _ | Texp_new _
+   | Texp_unreachable | Texp_extension_constructor _ | Texp_letop _
+     -> []
+-  | Texp_match (_,cs,_)
+-  | Texp_try (_,cs)
++  | Texp_match (_,cs,_,_)
++  | Texp_try (_,cs,_)
+     -> List.map cs ~f:(fun c -> Case c)
+   | Texp_letmodule (_,_,_,_,e) | Texp_letexception (_,e) | Texp_let (_,_,e)
+   | Texp_sequence (_,e) | Texp_ifthenelse (_,e,None) | Texp_open (_, e)
+diff --git a/src/ocaml/merlin_specific/410+multicore/typer_raw.ml b/src/ocaml/merlin_specific/410+multicore/typer_raw.ml
+index 759875c4..7e314a4f 100644
+--- a/src/ocaml/merlin_specific/410+multicore/typer_raw.ml
++++ b/src/ocaml/merlin_specific/410+multicore/typer_raw.ml
+@@ -84,6 +84,13 @@ module Rewrite_loc = struct
+     let loc = if Location_aux.is_relaxed_location loc then loc else u_loc loc in
+     (loc, u_payload payload)
+ 
++  and u_effect { peff_name = loc ; peff_kind; peff_loc; peff_attributes} =
++    let loc = if Location_aux.is_relaxed_location loc then loc else u_loc loc in
++    { peff_name = loc
++    ; peff_kind
++    ; peff_loc
++    ; peff_attributes}
++
+   and u_attributes l = List.map ~f:u_attribute l
+ 
+   and u_payload = function
+@@ -152,6 +159,7 @@ module Rewrite_loc = struct
+     | Ppat_record (fields, flag) -> Ppat_record (List.map ~f:(fun (l,p) -> (u_loc l, u_pattern p)) fields, flag)
+     | Ppat_array ps -> Ppat_array (List.map ~f:u_pattern ps)
+     | Ppat_or (p1, p2) -> Ppat_or (u_pattern p1, u_pattern p2)
++    | Ppat_effect (p1, p2) -> Ppat_effect (u_pattern p1, u_pattern p2)
+     | Ppat_constraint (p, ct) -> Ppat_constraint (u_pattern p, u_core_type ct)
+     | Ppat_type loc -> Ppat_type (u_loc loc)
+     | Ppat_lazy p -> Ppat_lazy (u_pattern p)
+@@ -449,6 +457,7 @@ module Rewrite_loc = struct
+     | Psig_class_type cts -> Psig_class_type (List.map ~f:u_class_type_declaration cts)
+     | Psig_attribute attr -> Psig_attribute (u_attribute attr)
+     | Psig_extension (ext, attrs) -> Psig_extension (u_extension ext, u_attributes attrs)
++    | Psig_effect ef -> Psig_effect(u_effect ef)
+     | Psig_typesubst tds -> Psig_typesubst (List.map ~f:u_type_declaration tds)
+     | Psig_modsubst ms -> Psig_modsubst (u_module_substitution ms)
+ 
+@@ -552,6 +561,7 @@ module Rewrite_loc = struct
+     | Pstr_class_type ctds -> Pstr_class_type (List.map ~f:u_class_type_declaration ctds)
+     | Pstr_include id -> Pstr_include (u_include_declaration id)
+     | Pstr_attribute attr -> Pstr_attribute (u_attribute attr)
++    | Pstr_effect ef -> Pstr_effect (u_effect ef)
+     | Pstr_extension (ext, attrs) -> Pstr_extension (u_extension ext, u_attributes attrs)
+ 
+   and u_value_binding {pvb_pat; pvb_expr; pvb_attributes; pvb_loc} =
+-- 
+2.29.2
+
