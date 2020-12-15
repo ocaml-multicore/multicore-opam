@@ -1,0 +1,1147 @@
+From df4cc8d7d903dd215eff4c7aa6f45e535693cf1d Mon Sep 17 00:00:00 2001
+From: Ulysse <5031221+voodoos@users.noreply.github.com>
+Date: Thu, 15 Oct 2020 15:39:08 +0200
+Subject: [PATCH 02/16] Destruct: reorganize ans add more tests (#1189)
+
+---
+ tests/dune.inc                                |  58 +++-
+ tests/test-dirs/destruct/basic.t              | 148 ----------
+ tests/test-dirs/destruct/complete.t           | 212 +++++++++++----
+ tests/test-dirs/destruct/create.t             | 253 ++++++++++++++++++
+ tests/test-dirs/destruct/errors.t             |  18 ++
+ ...{exceptions_pre_408.t => errors_pre_408.t} |   0
+ ...eptions_since_408.t => errors_since_408.t} |   0
+ tests/test-dirs/destruct/refine.t             | 246 +++++++++++++++++
+ 8 files changed, 723 insertions(+), 212 deletions(-)
+ delete mode 100644 tests/test-dirs/destruct/basic.t
+ create mode 100644 tests/test-dirs/destruct/create.t
+ create mode 100644 tests/test-dirs/destruct/errors.t
+ rename tests/test-dirs/destruct/{exceptions_pre_408.t => errors_pre_408.t} (100%)
+ rename tests/test-dirs/destruct/{exceptions_since_408.t => errors_since_408.t} (100%)
+ create mode 100644 tests/test-dirs/destruct/refine.t
+
+diff --git a/tests/dune.inc b/tests/dune.inc
+index 1ac3f4d5..ca06a932 100644
+--- a/tests/dune.inc
++++ b/tests/dune.inc
+@@ -221,9 +221,9 @@
+ (alias (name runtest) (deps (alias deprecation-run)))
+ 
+ (alias
+- (name destruct-basic)
++ (name destruct-complete)
+  (package merlin)
+- (deps (:t ./test-dirs/destruct/basic.t)
++ (deps (:t ./test-dirs/destruct/complete.t)
+        (source_tree ./test-dirs/destruct)
+        %{bin:ocamlmerlin}
+        %{bin:ocamlmerlin-server}
+@@ -235,12 +235,12 @@
+        (progn
+          (run %{bin:mdx} test --syntax=cram %{t})
+          (diff? %{t} %{t}.corrected)))))))
+-(alias (name runtest) (deps (alias destruct-basic)))
++(alias (name runtest) (deps (alias destruct-complete)))
+ 
+ (alias
+- (name destruct-complete)
++ (name destruct-create)
+  (package merlin)
+- (deps (:t ./test-dirs/destruct/complete.t)
++ (deps (:t ./test-dirs/destruct/create.t)
+        (source_tree ./test-dirs/destruct)
+        %{bin:ocamlmerlin}
+        %{bin:ocamlmerlin-server}
+@@ -252,12 +252,29 @@
+        (progn
+          (run %{bin:mdx} test --syntax=cram %{t})
+          (diff? %{t} %{t}.corrected)))))))
+-(alias (name runtest) (deps (alias destruct-complete)))
++(alias (name runtest) (deps (alias destruct-create)))
++
++(alias
++ (name destruct-errors)
++ (package merlin)
++ (deps (:t ./test-dirs/destruct/errors.t)
++       (source_tree ./test-dirs/destruct)
++       %{bin:ocamlmerlin}
++       %{bin:ocamlmerlin-server}
++       %{bin:dot-merlin-reader})
++ (action
++   (chdir ./test-dirs/destruct
++     (setenv MERLIN %{exe:merlin-wrapper}
++     (setenv OCAMLC %{ocamlc}
++       (progn
++         (run %{bin:mdx} test --syntax=cram %{t})
++         (diff? %{t} %{t}.corrected)))))))
++(alias (name runtest) (deps (alias destruct-errors)))
+ 
+ (alias
+- (name destruct-exceptions_pre_408)(enabled_if (< %{ocaml_version} 4.08.0))
++ (name destruct-errors_pre_408)(enabled_if (< %{ocaml_version} 4.08.0))
+  (package merlin)
+- (deps (:t ./test-dirs/destruct/exceptions_pre_408.t)
++ (deps (:t ./test-dirs/destruct/errors_pre_408.t)
+        (source_tree ./test-dirs/destruct)
+        %{bin:ocamlmerlin}
+        %{bin:ocamlmerlin-server}
+@@ -269,12 +286,12 @@
+        (progn
+          (run %{bin:mdx} test --syntax=cram %{t})
+          (diff? %{t} %{t}.corrected)))))))
+-(alias (name runtest) (deps (alias destruct-exceptions_pre_408)))
++(alias (name runtest) (deps (alias destruct-errors_pre_408)))
+ 
+ (alias
+- (name destruct-exceptions_since_408)(enabled_if (>= %{ocaml_version} 4.08.0))
++ (name destruct-errors_since_408)(enabled_if (>= %{ocaml_version} 4.08.0))
+  (package merlin)
+- (deps (:t ./test-dirs/destruct/exceptions_since_408.t)
++ (deps (:t ./test-dirs/destruct/errors_since_408.t)
+        (source_tree ./test-dirs/destruct)
+        %{bin:ocamlmerlin}
+        %{bin:ocamlmerlin-server}
+@@ -286,7 +303,7 @@
+        (progn
+          (run %{bin:mdx} test --syntax=cram %{t})
+          (diff? %{t} %{t}.corrected)))))))
+-(alias (name runtest) (deps (alias destruct-exceptions_since_408)))
++(alias (name runtest) (deps (alias destruct-errors_since_408)))
+ 
+ (alias
+  (name destruct-from_val)
+@@ -322,6 +339,23 @@
+          (diff? %{t} %{t}.corrected)))))))
+ (alias (name runtest) (deps (alias destruct-issue596)))
+ 
++(alias
++ (name destruct-refine)
++ (package merlin)
++ (deps (:t ./test-dirs/destruct/refine.t)
++       (source_tree ./test-dirs/destruct)
++       %{bin:ocamlmerlin}
++       %{bin:ocamlmerlin-server}
++       %{bin:dot-merlin-reader})
++ (action
++   (chdir ./test-dirs/destruct
++     (setenv MERLIN %{exe:merlin-wrapper}
++     (setenv OCAMLC %{ocamlc}
++       (progn
++         (run %{bin:mdx} test --syntax=cram %{t})
++         (diff? %{t} %{t}.corrected)))))))
++(alias (name runtest) (deps (alias destruct-refine)))
++
+ (alias
+  (name errors-alerts-test-pre-408)(enabled_if (< %{ocaml_version} 4.08.0))
+  (package merlin)
+diff --git a/tests/test-dirs/destruct/basic.t b/tests/test-dirs/destruct/basic.t
+deleted file mode 100644
+index 8e2d2ad7..00000000
+--- a/tests/test-dirs/destruct/basic.t
++++ /dev/null
+@@ -1,148 +0,0 @@
+-TODO: test all error cases
+-
+-  $ $MERLIN single case-analysis -start 4:9 -end 4:11 -filename nothing_to_do.ml <<EOF \
+-  > let _ = \
+-  >   match (None : unit option) with \
+-  >   | None -> () \
+-  >   | Some () -> () \
+-  > EOF
+-  {
+-    "class": "error",
+-    "value": "Nothing to do",
+-    "notifications": []
+-  }
+-
+-
+-  $ $MERLIN single case-analysis -start 3:4 -end 3:8 -filename make_exhaustive.ml <<EOF \
+-  > let _ = \
+-  >   match (None : unit option) with \
+-  >   | None -> () \
+-  > EOF
+-  {
+-    "class": "return",
+-    "value": [
+-      {
+-        "start": {
+-          "line": 3,
+-          "col": 14
+-        },
+-        "end": {
+-          "line": 3,
+-          "col": 14
+-        }
+-      },
+-      "
+-  | Some _ -> (??)"
+-    ],
+-    "notifications": []
+-  }
+-
+-  $ $MERLIN single case-analysis -start 4:9 -end 4:10 -filename refine_pattern.ml <<EOF \
+-  > let _ = \
+-  >   match (None : unit option) with \
+-  >   | None -> () \
+-  >   | Some _ -> () \
+-  > EOF
+-  {
+-    "class": "return",
+-    "value": [
+-      {
+-        "start": {
+-          "line": 4,
+-          "col": 9
+-        },
+-        "end": {
+-          "line": 4,
+-          "col": 10
+-        }
+-      },
+-      "()"
+-    ],
+-    "notifications": []
+-  }
+-
+-  $ $MERLIN single case-analysis -start 4:2 -end 4:3 -filename unpack_module.ml <<EOF \
+-  > module type S = sig end \
+-  >  \
+-  > let g (x : (module S)) = \
+-  >   x \
+-  > EOF
+-  {
+-    "class": "return",
+-    "value": [
+-      {
+-        "start": {
+-          "line": 4,
+-          "col": 2
+-        },
+-        "end": {
+-          "line": 4,
+-          "col": 3
+-        }
+-      },
+-      "let module M = (val x) in (??)"
+-    ],
+-    "notifications": []
+-  }
+-
+-  $ $MERLIN single case-analysis -start 2:2 -end 2:3 -filename record_exp.ml <<EOF \
+-  > let f (x : int ref) = \
+-  >   x \
+-  > EOF
+-  {
+-    "class": "return",
+-    "value": [
+-      {
+-        "start": {
+-          "line": 2,
+-          "col": 2
+-        },
+-        "end": {
+-          "line": 2,
+-          "col": 3
+-        }
+-      },
+-      "match x with | { contents } -> (??)"
+-    ],
+-    "notifications": []
+-  }
+-
+-FIXME: put each case on a different line (if it doesn't require updating
+-pprintast).
+-
+-  $ $MERLIN single case-analysis -start 2:2 -end 2:3 -filename variant_exp.ml <<EOF \
+-  > let f (x : int option) = \
+-  >   x \
+-  > EOF
+-  {
+-    "class": "return",
+-    "value": [
+-      {
+-        "start": {
+-          "line": 2,
+-          "col": 2
+-        },
+-        "end": {
+-          "line": 2,
+-          "col": 3
+-        }
+-      },
+-      "match x with | None -> (??) | Some _ -> (??)"
+-    ],
+-    "notifications": []
+-  }
+-
+-  $ echo "let () = ()" | $MERLIN single case-analysis -start 1:4 -end 1:4 -filename stacktrace.ml | grep -E -v "Raised|Called|Re-raised"
+-  {
+-    "class": "error",
+-    "value": "Destruct not allowed on value_binding",
+-    "notifications": []
+-  }
+-
+-  $ $MERLIN single case-analysis -start 4:2 -end 4:1 -filename nonode.ml <<EOF | grep -B 1 Query_commands.No_nodes \
+-  > let f (x : int option) = \
+-  >   match w with    \
+-  >  | _ -> ()        \
+-  > EOF
+-    "class": "exception",
+-    "value": "Query_commands.No_nodes
+diff --git a/tests/test-dirs/destruct/complete.t b/tests/test-dirs/destruct/complete.t
+index ab78f375..e3e211c9 100644
+--- a/tests/test-dirs/destruct/complete.t
++++ b/tests/test-dirs/destruct/complete.t
+@@ -1,3 +1,95 @@
++###############
++## SUM TYPES ##
++###############
++
++Test 1.1 : FIXME (void type no Some)
++
++  $ cat >typ5.ml <<EOF          \
++  > type void = |               \
++  > let f (x : void option) =   \
++  >   match x with              \
++  >   | None -> ()              \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 4:4 -end 4:4 -filename typ5.ml <typ5.ml | \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 4,
++          "col": 14
++        },
++        "end": {
++          "line": 4,
++          "col": 14
++        }
++      },
++      "|Some _ -> (??)"
++    ],
++    "notifications": []
++  }
++
++Test 1.2 : FIXME ?
++
++  $ cat >typ12.ml <<EOF \
++  > let _ = \
++  >   match (None : int option option) with \
++  >   | Some (Some 3) -> () \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 3:4 -end 3:8 -filename typ12.ml < typ12.ml \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 3,
++          "col": 23
++        },
++        "end": {
++          "line": 3,
++          "col": 23
++        }
++      },
++      "|Some (Some 0)|Some (None)|None -> (??)"
++    ],
++    "notifications": []
++  }
++
++Test 1.3 : with type constructor
++
++  $ $MERLIN single case-analysis -start 3:5 -end 3:5 -filename funny.ml <<EOF \
++  > type funny = int option -> unit \
++  > let v : funny = function \
++  >   | None -> ()    \
++  > EOF
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 3,
++          "col": 14
++        },
++        "end": {
++          "line": 3,
++          "col": 14
++        }
++      },
++      "
++  | Some _ -> (??)"
++    ],
++    "notifications": []
++  }
++
++#############
++## RECORDS ##
++#############
++
++Test 2.1
+ 
+   $ cat >typ.ml <<EOF \
+   > type a = A | B of string \
+@@ -27,95 +119,106 @@
+     "notifications": []
+   }
+ 
+-  $ cat >typ2.ml <<EOF \
+-  > type basic_color = [ \`Blue | \`Red | \`Yellow ] \
+-  > let f (x : basic_color) = \
+-  >   match x with          \
+-  >   | \`Blue -> ()        \
++Test 2.2 : FIXME ?
++
++  $ cat >typ3.ml <<EOF \
++  > type a = A | B of string \
++  > type recd = { a : a } \
++  > let f (x : recd) =    \
++  >   match x with        \
++  >   | { a = A } -> ()   \
++  >   | { a = B _ } -> () \
+   > EOF
+ 
+-  $ $MERLIN single case-analysis -start 4:5 -end 4:5 -filename typ2.ml <typ2.ml | \
++  $ $MERLIN single case-analysis -start 6:12 -end 6:12 -filename typ3.ml <typ3.ml | \
+   > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
+   {
+     "class": "return",
+     "value": [
+       {
+         "start": {
+-          "line": 4,
+-          "col": 15
++          "line": 6,
++          "col": 4
+         },
+         "end": {
+-          "line": 4,
++          "line": 6,
+           "col": 15
+         }
+       },
+-      "|`Yellow|`Red -> (??)"
++      "{ a = B \"\" }|{ a = B _ }"
+     ],
+     "notifications": []
+   }
+ 
+-FIXME ?
++##########################
++## POLYMORPHIC VARIANTS ##
++##########################
+ 
++Test 3.1
+ 
+-  $ cat >typ3.ml <<EOF \
+-  > type a = A | B of string \
+-  > type recd = { a : a } \
+-  > let f (x : recd) =    \
+-  >   match x with        \
+-  >   | { a = A } -> ()   \
+-  >   | { a = B _ } -> () \
++  $ cat >typ2.ml <<EOF \
++  > type basic_color = [ \`Blue | \`Red | \`Yellow ] \
++  > let f (x : basic_color) = \
++  >   match x with          \
++  >   | \`Blue -> ()        \
+   > EOF
+ 
+-  $ $MERLIN single case-analysis -start 6:12 -end 6:12 -filename typ3.ml <typ3.ml | \
++  $ $MERLIN single case-analysis -start 4:5 -end 4:5 -filename typ2.ml <typ2.ml | \
+   > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
+   {
+     "class": "return",
+     "value": [
+       {
+         "start": {
+-          "line": 6,
+-          "col": 4
++          "line": 4,
++          "col": 15
+         },
+         "end": {
+-          "line": 6,
++          "line": 4,
+           "col": 15
+         }
+       },
+-      "{ a = B \"\" }|{ a = B _ }"
++      "|`Yellow|`Red -> (??)"
+     ],
+     "notifications": []
+   }
+ 
+-  $ cat >typ4.ml <<EOF \
+-  > type b = C | D of string \
+-  > type a = A | B of b   \
+-  > type recd = { a : a } \
+-  > let f (x : recd) =    \
+-  >   match x with        \
+-  >   | { a = A } -> ()   \
+-  >   | { a = B _ } -> () \
++Test 3.1
++
++  $ cat >typv3.ml <<EOF \
++  > type basic_color = [ \`Blue | \`Red | \`Yellow ] \
++  > type better_color = [ basic_color | \`Gold ] \
++  > let f (x : better_color) = \
++  >   match x with          \
++  >   | #basic_color -> ()        \
+   > EOF
+ 
+-  $ $MERLIN single case-analysis -start 7:12 -end 7:12 -filename typ4.ml <typ4.ml | \
++  $ $MERLIN single case-analysis -start 5:5 -end 5:5 -filename typv3.ml <typv3.ml | \
+   > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
+   {
+     "class": "return",
+     "value": [
+       {
+         "start": {
+-          "line": 7,
+-          "col": 4
++          "line": 5,
++          "col": 22
+         },
+         "end": {
+-          "line": 7,
+-          "col": 15
++          "line": 5,
++          "col": 22
+         }
+       },
+-      "{ a = B (C) }|{ a = B (D _) }"
++      "|`Gold -> (??)"
+     ],
+     "notifications": []
+   }
+ 
++##########
++## GADT ##
++##########
++
++Test 4.1
++
+   $ cat >typ3.ml <<EOF                              \
+   > type _ term =                                   \
+   >  | Int : int -> int term                        \
+@@ -147,6 +250,8 @@ FIXME ?
+     "notifications": []
+   }
+ 
++Test 4.2
++
+   $ cat >typ4.ml <<EOF                              \
+   > type _ term =                                   \
+   >  | Int : int -> int term                        \
+@@ -178,7 +283,7 @@ FIXME ?
+     "notifications": []
+   }
+ 
+-FIXME
++Test 4.3 : FIXME this match IS exhaustive
+ 
+   $ cat >typ4b.ml <<EOF         \
+   > type _ t =                  \
+@@ -209,31 +314,34 @@ FIXME
+     "notifications": []
+   }
+ 
+-FIXME
++############
++## MODULE ##
++############
+ 
+-  $ cat >typ5.ml <<EOF          \
+-  > type void = |               \
+-  > let f (x : void option) =   \
+-  >   match x with              \
+-  >   | None -> ()              \
+-  > EOF
++Test 5.1 : Module path
+ 
+-  $ $MERLIN single case-analysis -start 4:4 -end 4:4 -filename typ5.ml <typ5.ml | \
+-  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  $ $MERLIN single case-analysis -start 5:4 -end 5:4 -filename module_path.ml <<EOF \
++  > module T = struct type t = A | B of int end \
++  >  \
++  > let g x = \
++  >   match x with  \
++  >   | T.A -> () \
++  > EOF
+   {
+     "class": "return",
+     "value": [
+       {
+         "start": {
+-          "line": 4,
+-          "col": 14
++          "line": 5,
++          "col": 13
+         },
+         "end": {
+-          "line": 4,
+-          "col": 14
++          "line": 5,
++          "col": 13
+         }
+       },
+-      "|Some _ -> (??)"
++      "
++  | T.B _ -> (??)"
+     ],
+     "notifications": []
+   }
+diff --git a/tests/test-dirs/destruct/create.t b/tests/test-dirs/destruct/create.t
+new file mode 100644
+index 00000000..62091cd7
+--- /dev/null
++++ b/tests/test-dirs/destruct/create.t
+@@ -0,0 +1,253 @@
++###############
++## SUM TYPES ##
++###############
++
++Test 1.1 : FIXME: put each case on a different line (if it doesn't require updating
++pprintast).
++
++  $ $MERLIN single case-analysis -start 2:2 -end 2:3 -filename variant_exp.ml <<EOF \
++  > let f (x : int option) = \
++  >   x \
++  > EOF
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 2,
++          "col": 2
++        },
++        "end": {
++          "line": 2,
++          "col": 3
++        }
++      },
++      "match x with | None -> (??) | Some _ -> (??)"
++    ],
++    "notifications": []
++  }
++
++#############
++## RECORDS ##
++#############
++
++Test 2.1
++
++  $ $MERLIN single case-analysis -start 2:2 -end 2:3 -filename record_exp.ml <<EOF \
++  > let f (x : int ref) = \
++  >   x \
++  > EOF
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 2,
++          "col": 2
++        },
++        "end": {
++          "line": 2,
++          "col": 3
++        }
++      },
++      "match x with | { contents } -> (??)"
++    ],
++    "notifications": []
++  }
++
++##########################
++## POLYMORPHIC VARIANTS ##
++##########################
++
++Test 3.1
++
++  $ cat >typv2.ml <<EOF \
++  > type basic_color = [ \`Blue | \`Red | \`Yellow ] \
++  > let f (x : basic_color) = \
++  >   x                       \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 3:2 -end 3:2 -filename typv2.ml <typv2.ml | \
++  > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 3,
++          "col": 2
++        },
++        "end": {
++          "line": 3,
++          "col": 3
++        }
++      },
++      "match x with|`Blue -> (??)|`Yellow -> (??)|`Red -> (??)"
++    ],
++    "notifications": []
++  }
++
++Test 3.1
++
++  $ cat >typv3.ml <<EOF \
++  > type basic_color = [ \`Blue | \`Red | \`Yellow ] \
++  > type better_color = [ basic_color | \`Gold ] \
++  > let f (x : better_color) = \
++  >   x                       \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 4:2 -end 4:2 -filename typv3.ml <typv3.ml | \
++  > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 4,
++          "col": 2
++        },
++        "end": {
++          "line": 4,
++          "col": 3
++        }
++      },
++      "match x with|`Blue -> (??)|`Yellow -> (??)|`Red -> (??)|`Gold -> (??)"
++    ],
++    "notifications": []
++  }
++
++##########
++## GADT ##
++##########
++
++Test 4.1
++
++  $ cat >typ4b.ml <<EOF         \
++  > type _ t =                  \
++  >   | I : int -> int t               \
++  >   | B : bool t              \
++  > let f (x : int t) : unit =  \
++  >   x        \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 5:2 -end 5:2 -filename typ4b.ml <typ4b.ml | \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 5,
++          "col": 2
++        },
++        "end": {
++          "line": 5,
++          "col": 3
++        }
++      },
++      "(match x with|I _ -> (??))"
++    ],
++    "notifications": []
++  }
++
++Test 4.2
++
++  $ cat >typ4.ml <<EOF                              \
++  > type _ term =                                   \
++  >  | Int : int -> int term                        \
++  >  | Add : (int -> int -> int) term               \
++  >  | App : ('b -> 'a) term * 'b term -> 'a term   \
++  > let eval : type a. a term -> a term = fun x ->  \
++  >   x                                             \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 6:2 -end 6:2 -filename typ4.ml <typ4.ml | \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 6,
++          "col": 2
++        },
++        "end": {
++          "line": 6,
++          "col": 3
++        }
++      },
++      "match x with|Int _ -> (??)|Add -> (??)|App (_,_) -> (??)"
++    ],
++    "notifications": []
++  }
++
++############
++## MODULE ##
++############
++
++Test 5.1
++
++  $ $MERLIN single case-analysis -start 4:2 -end 4:3 -filename unpack_module.ml <<EOF \
++  > module type S = sig end \
++  >  \
++  > let g (x : (module S)) = \
++  >   x \
++  > EOF
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 4,
++          "col": 2
++        },
++        "end": {
++          "line": 4,
++          "col": 3
++        }
++      },
++      "let module M = (val x) in (??)"
++    ],
++    "notifications": []
++  }
++
++Test 5.2 : Module path
++
++  $ $MERLIN single case-analysis -start 4:2 -end 4:3 -filename module_path.ml <<EOF \
++  > module T = struct type t = A | B of int end \
++  >  \
++  > let g (x : T.t) = \
++  >   x \
++  > EOF
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 4,
++          "col": 2
++        },
++        "end": {
++          "line": 4,
++          "col": 3
++        }
++      },
++      "match x with | T.A -> (??) | T.B _ -> (??)"
++    ],
++    "notifications": []
++  }
++
++test 5.3 : Abstract type
++
++
++  $ $MERLIN single case-analysis -start 4:2 -end 4:3 -filename module_path.ml <<EOF \
++  > module T : sig type t end = struct type t = A | B of int end \
++  >  \
++  > let g (x : T.t) = \
++  >   x \
++  > EOF
++  {
++    "class": "error",
++    "value": "Destruct not allowed on non-destructible type: t",
++    "notifications": []
++  }
+diff --git a/tests/test-dirs/destruct/errors.t b/tests/test-dirs/destruct/errors.t
+new file mode 100644
+index 00000000..5aabc544
+--- /dev/null
++++ b/tests/test-dirs/destruct/errors.t
+@@ -0,0 +1,18 @@
++Test 1
++
++  $ echo "let () = ()" | $MERLIN single case-analysis -start 1:4 -end 1:4 -filename stacktrace.ml | grep -E -v "Raised|Called|Re-raised"
++  {
++    "class": "error",
++    "value": "Destruct not allowed on value_binding",
++    "notifications": []
++  }
++
++Test 2
++
++  $ $MERLIN single case-analysis -start 4:2 -end 4:1 -filename nonode.ml <<EOF | grep -B 1 Query_commands.No_nodes \
++  > let f (x : int option) = \
++  >   match w with    \
++  >  | _ -> ()        \
++  > EOF
++    "class": "exception",
++    "value": "Query_commands.No_nodes
+diff --git a/tests/test-dirs/destruct/exceptions_pre_408.t b/tests/test-dirs/destruct/errors_pre_408.t
+similarity index 100%
+rename from tests/test-dirs/destruct/exceptions_pre_408.t
+rename to tests/test-dirs/destruct/errors_pre_408.t
+diff --git a/tests/test-dirs/destruct/exceptions_since_408.t b/tests/test-dirs/destruct/errors_since_408.t
+similarity index 100%
+rename from tests/test-dirs/destruct/exceptions_since_408.t
+rename to tests/test-dirs/destruct/errors_since_408.t
+diff --git a/tests/test-dirs/destruct/refine.t b/tests/test-dirs/destruct/refine.t
+new file mode 100644
+index 00000000..a1dcfdfd
+--- /dev/null
++++ b/tests/test-dirs/destruct/refine.t
+@@ -0,0 +1,246 @@
++###############
++## SUM TYPES ##
++###############
++
++Test 1.1 : option refine
++
++  $ $MERLIN single case-analysis -start 4:9 -end 4:10 -filename refine_pattern.ml <<EOF \
++  > let _ = \
++  >   match (None : unit option) with \
++  >   | None -> () \
++  >   | Some _ -> () \
++  > EOF
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 4,
++          "col": 9
++        },
++        "end": {
++          "line": 4,
++          "col": 10
++        }
++      },
++      "()"
++    ],
++    "notifications": []
++  }
++
++Test 1.2 : option refine
++
++  $ cat >typ12.ml <<EOF \
++  > type t = A | B of int \
++  > let _ = \
++  >   match (None : t option) with \
++  >   | None -> () \
++  >   | Some _ -> () \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 5:9 -end 5:10 -filename typ12.ml < typ12.ml \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 5,
++          "col": 4
++        },
++        "end": {
++          "line": 5,
++          "col": 10
++        }
++      },
++      "Some (A)|Some (B _)"
++    ],
++    "notifications": []
++  }
++
++Test 1.3 : FIXME ? int option
++
++  $ cat >typ13.ml <<EOF \
++  > let _ = \
++  >   match (None : int option) with \
++  >   | None -> () \
++  >   | Some _ -> () \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 4:9 -end 4:10 -filename typ13.ml < typ13.ml \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 4,
++          "col": 4
++        },
++        "end": {
++          "line": 4,
++          "col": 10
++        }
++      },
++      "Some 0|Some _"
++    ],
++    "notifications": []
++  }
++
++#############
++## RECORDS ##
++#############
++
++Test 2.1
++
++  $ cat >typ4.ml <<EOF \
++  > type b = C | D of string \
++  > type a = A | B of b   \
++  > type recd = { a : a } \
++  > let f (x : recd) =    \
++  >   match x with        \
++  >   | { a = A } -> ()   \
++  >   | { a = B _ } -> () \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 7:12 -end 7:12 -filename typ4.ml <typ4.ml | \
++  > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 7,
++          "col": 4
++        },
++        "end": {
++          "line": 7,
++          "col": 15
++        }
++      },
++      "{ a = B (C) }|{ a = B (D _) }"
++    ],
++    "notifications": []
++  }
++
++##########################
++## POLYMORPHIC VARIANTS ##
++##########################
++
++Test 3.1
++
++  $ cat >typ2.ml <<EOF \
++  > type blues = [ \`Cyan | \`Methyl ] \
++  > type basic_color = [ \`Blue of blues ] \
++  > let f (x : basic_color) = \
++  >   match x with          \
++  >   | \`Blue _ -> ()        \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 5:11 -end 5:11 -filename typ2.ml <typ2.ml | \
++  > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 5,
++          "col": 4
++        },
++        "end": {
++          "line": 5,
++          "col": 11
++        }
++      },
++      "`Blue `Methyl|`Blue `Cyan"
++    ],
++    "notifications": []
++  }
++
++##########
++## GADT ##
++##########
++
++Test 4.1 : Fixme: missing space and ()
++
++  $ cat >typ3.ml <<EOF                              \
++  > type _ sub_t =                                  \
++  >   | A : int -> int sub_t                        \
++  >   | B : int -> float sub_t                      \
++  > type _ term =                                   \
++  >  | Int : int sub_t -> int term                  \
++  > let eval : type a. a term -> a term =           \
++  >   fun x : a term -> match x with                \
++  >   | Int _ -> ()                                 \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 8:8 -end 8:8 -filename typ3.ml <typ3.ml | \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 8,
++          "col": 8
++        },
++        "end": {
++          "line": 8,
++          "col": 9
++        }
++      },
++      "A_"
++    ],
++    "notifications": []
++  }
++
++Test 4.2
++
++  $ cat >typ3b.ml <<EOF                             \
++  > type _ sub_t =                                  \
++  >   | A : int -> int sub_t                        \
++  >   | B : int -> int sub_t                        \
++  > type _ term =                                   \
++  >  | Int : int sub_t -> int term                  \
++  > let eval : type a. a term -> a term =           \
++  >   fun x : a term -> match x with                \
++  >   | Int _ -> ()                                 \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 8:8 -end 8:8 -filename typ3b.ml <typ3b.ml | \
++  > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 8,
++          "col": 4
++        },
++        "end": {
++          "line": 8,
++          "col": 9
++        }
++      },
++      "Int (A _)|Int (B _)"
++    ],
++    "notifications": []
++  }
++
++############
++## ERRORS ##
++############
++
++Test 5.1 : Nothing to do
++
++  $ $MERLIN single case-analysis -start 4:9 -end 4:11 -filename nothing_to_do.ml <<EOF \
++  > let _ = \
++  >   match (None : unit option) with \
++  >   | None -> () \
++  >   | Some () -> () \
++  > EOF
++  {
++    "class": "error",
++    "value": "Nothing to do",
++    "notifications": []
++  }
+-- 
+2.29.2
+
