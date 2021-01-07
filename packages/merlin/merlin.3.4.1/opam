@@ -1,0 +1,66 @@
+opam-version: "2.0"
+maintainer:   "defree@gmail.com"
+authors:      "The Merlin team"
+synopsis:     "Reads config files for merlin"
+homepage:     "https://github.com/ocaml/merlin"
+bug-reports:  "https://github.com/ocaml/merlin/issues"
+dev-repo: "git+https://github.com/ocaml/merlin.git"
+build: [
+  ["dune" "subst"] {pinned}
+  ["dune" "build" "-p" name "-j" jobs]
+]
+depends: [
+  "ocaml" {>= "4.02.1" & < "4.12"}
+  "dune" {>= "1.8.0"}
+  "yojson" {>= "1.6.0"}
+  "ocamlfind" {>= "1.6.0"}
+  "csexp" {>= "1.2.3"}
+  "result" {>= "1.5"}
+]
+
+url {
+  src:
+    "https://github.com/ocaml/merlin/releases/download/v3.4.1/merlin-v3.4.1.tbz"
+  checksum: [
+    "sha256=e7f28ca520d1ab4a58e8ba876b665b1ecf9917cee7e5b3e3330afbd1d12a9e2a"
+    "sha512=40ae93397aea031c1b4450998b448fc1df9671d612be0a02986688e5dd1390ced1c31bb2cdde9c6b52f8be841ca9fd1931fc302b26ef19cb2e88925d3b360c37"
+  ]
+}
+
+patches: [
+"0001-Local_store-change-API.patch"
+"0002-Destruct-reorganize-ans-add-more-tests-1189.patch"
+"0003-The-dot-merlin-reader-package-is-always-only-valid-f.patch"
+"0005-Fix-Destruct-ill-typed-completions-1194.patch"
+"0006-multicore-initial-merlin_specific-copy.patch"
+"0007-multicore-initial-merlin_specific-import.patch"
+"0008-multicore-initial-parsing-copy.patch"
+"0009-multicore-initial-parsing-import.patch"
+"0010-multicore-initial-preprocess-copy.patch"
+"0011-multicore-initial-typing-copy.patch"
+"0012-multicore-initial-typing-import.patch"
+"0013-multicore-initial-util-copy.patch"
+"0014-multicore-differentiate-multicore-with-dune.patch"
+"0015-multicore-add-upstream-multicore-files.patch"
+"0016-add-effect-syntax.patch"
+]
+
+
+extra-files: [
+["0001-Local_store-change-API.patch" "md5=483940da139a810b305fb699d7f78907"]
+["0002-Destruct-reorganize-ans-add-more-tests-1189.patch" "md5=b85d2bb8467578987e513ab5f3e463f2"]
+["0003-The-dot-merlin-reader-package-is-always-only-valid-f.patch" "md5=9d507cda053708a354afd45b939b5362"]
+["0004-Use-avsm-setup-ocaml-v1-instead-of-1.0.1-1190.patch" "md5=941715dc3abd0f4f29fabf210f6edd4b"]
+["0005-Fix-Destruct-ill-typed-completions-1194.patch" "md5=484da034e74f4696a5d8c3ec09bd520a"]
+["0006-multicore-initial-merlin_specific-copy.patch" "md5=054faf3a3131b9e859a12d3510ebfa82"]
+["0007-multicore-initial-merlin_specific-import.patch" "md5=5e3f5aa92e16dcc17d0626bbbb8af226"]
+["0008-multicore-initial-parsing-copy.patch" "md5=d96c2e407b07886ed94f9cd0dbd6aad5"]
+["0009-multicore-initial-parsing-import.patch" "md5=3ac5cb916b8adaed4b587e6eaccc1283"]
+["0010-multicore-initial-preprocess-copy.patch" "md5=4b50048759c102cf1f8675afdb7e73f5"]
+["0011-multicore-initial-typing-copy.patch" "md5=70687532d17036d5fed3103a4bdb2dbc"]
+["0012-multicore-initial-typing-import.patch" "md5=1be20cf8f0edb6e329a24cc24da03486"]
+["0013-multicore-initial-util-copy.patch" "md5=84e368bfbd78d3d7ea1ee670593d36c1"]
+["0014-multicore-differentiate-multicore-with-dune.patch" "md5=101713b2c6f5b3416fe09dbb5a6cf935"]
+["0015-multicore-add-upstream-multicore-files.patch" "md5=0b02637b5ae8e9dd0b4ade9d5031ede4"]
+["0016-add-effect-syntax.patch" "md5=93bf6e26507936dbcfb01da6d0881c53"]
+]

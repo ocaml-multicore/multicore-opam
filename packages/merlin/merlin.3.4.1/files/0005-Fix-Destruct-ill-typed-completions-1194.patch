@@ -1,0 +1,1684 @@
+From 6238436a593570e3a2a9fdd0cd72a7c1c87f3db2 Mon Sep 17 00:00:00 2001
+From: Ulysse <5031221+voodoos@users.noreply.github.com>
+Date: Tue, 10 Nov 2020 18:48:05 +0100
+Subject: [PATCH 05/16] Fix : Destruct ill-typed completions (#1194)
+
+* Allow use of pred in `complete_partial`
+* Identify match and make pred
+* Unmangle pattern before prefixing
+* Check is record is closed or not
+* 410 -> 402 compat
+* Update tests
+---
+ src/analysis/destruct.ml.new                 | 87 ++++++++++++++++++--
+ src/analysis/destruct.ml.old                 | 87 ++++++++++++++++++--
+ src/ocaml/merlin_specific/402/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/402/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/403/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/403/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/404/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/404/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/405/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/405/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/406/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/406/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/407/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/407/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/408/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/408/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/409/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/409/raw_compat.mli |  2 +
+ src/ocaml/merlin_specific/410/raw_compat.ml  |  4 +
+ src/ocaml/merlin_specific/410/raw_compat.mli |  2 +
+ src/ocaml/typing/402/parmatch.ml             | 20 ++---
+ src/ocaml/typing/402/parmatch.mli            | 10 ++-
+ src/ocaml/typing/402/typecore.mli            | 10 +++
+ src/ocaml/typing/403/parmatch.ml             | 20 ++---
+ src/ocaml/typing/403/parmatch.mli            | 10 ++-
+ src/ocaml/typing/403/typecore.mli            | 13 +++
+ src/ocaml/typing/404/parmatch.ml             | 20 ++---
+ src/ocaml/typing/404/parmatch.mli            | 10 ++-
+ src/ocaml/typing/404/typecore.mli            | 13 +++
+ src/ocaml/typing/405/parmatch.ml             | 20 ++---
+ src/ocaml/typing/405/parmatch.mli            | 10 ++-
+ src/ocaml/typing/405/typecore.mli            | 13 +++
+ src/ocaml/typing/406/parmatch.ml             | 22 ++---
+ src/ocaml/typing/406/parmatch.mli            | 10 ++-
+ src/ocaml/typing/406/typecore.mli            | 13 +++
+ src/ocaml/typing/407/parmatch.ml             | 20 ++---
+ src/ocaml/typing/407/parmatch.mli            | 10 ++-
+ src/ocaml/typing/407/typecore.mli            | 12 +++
+ src/ocaml/typing/408/parmatch.ml             | 20 ++---
+ src/ocaml/typing/408/parmatch.mli            | 10 ++-
+ src/ocaml/typing/408/typecore.mli            | 13 +++
+ src/ocaml/typing/409/parmatch.ml             | 20 ++---
+ src/ocaml/typing/409/parmatch.mli            | 10 ++-
+ src/ocaml/typing/409/typecore.mli            | 13 +++
+ src/ocaml/typing/410/parmatch.ml             | 20 ++---
+ src/ocaml/typing/410/parmatch.mli            | 10 ++-
+ src/ocaml/typing/410/typecore.ml             |  5 ++
+ src/ocaml/typing/410/typecore.mli            | 11 +++
+ src/ocaml/typing/411/parmatch.ml             | 21 ++---
+ src/ocaml/typing/411/parmatch.mli            |  9 +-
+ src/ocaml/typing/411/typecore.ml             |  5 ++
+ src/ocaml/typing/411/typecore.mli            | 11 +++
+ tests/test-dirs/destruct/complete.t          | 52 ++++++++----
+ tests/test-dirs/destruct/refine.t            | 30 +++++++
+ 54 files changed, 602 insertions(+), 142 deletions(-)
+
+diff --git a/src/analysis/destruct.ml.new b/src/analysis/destruct.ml.new
+index 10aa7c38..6e147ed6 100644
+--- a/src/analysis/destruct.ml.new
++++ b/src/analysis/destruct.ml.new
+@@ -196,6 +196,37 @@ let rec needs_parentheses = function
+       end
+     | _ -> needs_parentheses ts
+ 
++let rec get_match = function
++| [] -> assert false
++| parent :: parents ->
++  match parent with
++  | Case _
++  | Pattern _ ->
++    (* We are still in the same branch, going up. *)
++    get_match parents
++  | Expression m ->
++    (match m.Typedtree.exp_desc with
++    | Typedtree.Texp_match (e, _, _) -> m, e.exp_type
++    | Typedtree.Texp_function _ ->
++      let typ = Ctype.repr m.exp_type in
++        (* Function must have arrow type. This arrow type
++           might be hidden behind type constructors *)
++        m, (match typ.desc with
++        | Tarrow (_, te, _, _) -> te
++        | Tconstr _ ->
++          (match (Ctype.full_expand m.exp_env typ |> Ctype.repr).desc with
++          | Tarrow (_, te, _, _) -> te
++          | _ -> assert false)
++        | _ -> assert false)
++    | _ ->
++      (* We were not in a match *)
++      let s = Mbrowse.print_node () parent in
++      raise  (Not_allowed s))
++  | _ ->
++    (* We were not in a match *)
++    let s = Mbrowse.print_node () parent in
++    raise  (Not_allowed s)
++
+ let rec get_every_pattern = function
+   | [] -> assert false
+   | parent :: parents ->
+@@ -327,22 +358,53 @@ let rec rm_sub patt sub =
+   | Tpat_lazy p ->
+     { patt with pat_desc = Tpat_lazy (f p) }
+ 
+-let rec qualify_constructors f pat =
++let rec qualify_constructors ~unmangling_tables f pat  =
+   let open Typedtree in
++  let qualify_constructors = qualify_constructors ~unmangling_tables in
+   let pat_desc =
+     match pat.pat_desc with
+     | Tpat_alias (p, id, loc) -> Tpat_alias (qualify_constructors f p, id, loc)
+     | Tpat_tuple ps -> Tpat_tuple (List.map ps ~f:(qualify_constructors f))
+     | Tpat_record (labels, closed) ->
+       let labels =
++        let open Longident in
+         List.map labels
+-          ~f:(fun (lid, descr, pat) -> lid, descr, qualify_constructors f pat)
++          ~f:(fun ((Location.{ txt ; _ } as lid), lbl_des, pat) ->
++            let lid_name = flatten txt |> String.concat ~sep:"." in
++            let pat = qualify_constructors f pat in
++            (* Un-mangle *)
++            match unmangling_tables with
++            | Some (_, labels) ->
++              (match Hashtbl.find_opt labels lid_name with
++              | Some lbl_des -> (
++                  { lid with txt = Lident lbl_des.Types.lbl_name },
++                  lbl_des,
++                  pat
++                )
++              | None -> (lid, lbl_des, pat))
++            | None -> (lid, lbl_des, pat))
++      in
++      let closed =
++        if List.length labels > 0 then
++          let _, lbl_des, _ = List.hd labels in
++          if List.length labels = Array.length lbl_des.Types.lbl_all then
++            Asttypes.Closed
++          else Asttypes.Open
++        else closed
+       in
+       Tpat_record (labels, closed)
+     | Tpat_construct (lid, cstr_desc, ps) ->
+       let lid =
+         match lid.Asttypes.txt with
+         | Longident.Lident name ->
++          (* Un-mangle *)
++          let name = match unmangling_tables with
++            | Some (constrs, _) ->
++              (match  Hashtbl.find_opt constrs name with
++              | Some cstr_des -> cstr_des.Types.cstr_name
++              | None -> name)
++            | None -> name
++          in
+           begin match (Btype.repr pat.pat_type).Types.desc with
+           | Types.Tconstr (path, _, _) ->
+             let path = f pat.pat_env path in
+@@ -435,19 +497,32 @@ let node config source node parents =
+           (fun () -> Mreader.print_pretty config source (Pretty_pattern p))
+       ) ;
+       let pss = List.map patterns ~f:(fun x -> [ x ]) in
+-      begin match Parmatch.complete_partial pss with
+-      | Some pat ->
+-        let pat  = qualify_constructors Printtyp.shorten_type_path pat in
++      let m, e_typ = get_match parents in
++      let pred = Typecore.partial_pred
++        ~lev:Btype.generic_level
++        m.Typedtree.exp_env
++        e_typ
++      in
++      begin match Parmatch.complete_partial ~pred pss with
++      | Some pat, unmangling_tables ->
++        (* Unmangling and prefixing *)
++        let pat =
++          qualify_constructors ~unmangling_tables Printtyp.shorten_type_path pat
++        in
++
++        (* Untyping and casing *)
+         let ppat = filter_pat_attr (Untypeast.untype_pattern pat) in
+         let case = Ast_helper.Exp.case ppat placeholder in
+         let loc =
+           let open Location in
+           { last_case_loc with loc_start = last_case_loc.loc_end }
+         in
++
++        (* Pretty printing *)
+         let str = Mreader.print_pretty
+             config source (Pretty_case_list [ case ]) in
+         loc, str
+-      | None ->
++      | None, _ ->
+         begin match Typedtree.classify_pattern patt with
+         | Computation -> raise (Not_allowed ("computation pattern"));
+         | Value ->
+diff --git a/src/analysis/destruct.ml.old b/src/analysis/destruct.ml.old
+index cfd2dcac..e6a8d4b0 100644
+--- a/src/analysis/destruct.ml.old
++++ b/src/analysis/destruct.ml.old
+@@ -209,6 +209,39 @@ let rec patt_without_comput patt =
+     end
+   | _ -> Some patt
+ 
++let rec get_match = function
++| [] -> assert false
++| parent :: parents ->
++  match parent with
++  | Case _
++  | Pattern _ ->
++    (* We are still in the same branch, going up. *)
++    get_match parents
++  | Expression m ->
++    (match m.Typedtree.exp_desc with
++    | Typedtree.Texp_match _ as match_ ->
++      let e = Raw_compat.tmatch_scrutinee match_ in
++      m, e.exp_type
++    | Typedtree.Texp_function _ ->
++      let typ = Ctype.repr m.exp_type in
++        (* Function must have arrow type. This arrow type
++            might be hidden behind type constructors *)
++        m, (match typ.desc with
++        | Tarrow (_, te, _, _) -> te
++        | Tconstr _ ->
++          (match (Ctype.full_expand m.exp_env typ |> Ctype.repr).desc with
++          | Tarrow (_, te, _, _) -> te
++          | _ -> assert false)
++        | _ -> assert false)
++    | _ ->
++      (* We were not in a match *)
++      let s = Mbrowse.print_node () parent in
++      raise  (Not_allowed s))
++  | _ ->
++    (* We were not in a match *)
++    let s = Mbrowse.print_node () parent in
++    raise  (Not_allowed s)
++
+ let rec get_every_pattern = function
+   | [] -> assert false
+   | parent :: parents ->
+@@ -337,22 +370,53 @@ let rec rm_sub patt sub =
+   | Tpat_exception p ->
+     Raw_compat.Pattern.update_desc_exn patt (Tpat_exception (f p) )
+ 
+-let rec qualify_constructors f pat =
++let rec qualify_constructors ~unmangling_tables f pat =
+   let open Typedtree in
++  let qualify_constructors = qualify_constructors ~unmangling_tables in
+   let pat_desc =
+     match pat.pat_desc with
+     | Tpat_alias (p, id, loc) -> Tpat_alias (qualify_constructors f p, id, loc)
+     | Tpat_tuple ps -> Tpat_tuple (List.map ps ~f:(qualify_constructors f))
+     | Tpat_record (labels, closed) ->
+       let labels =
++        let open Longident in
+         List.map labels
+-          ~f:(fun (lid, descr, pat) -> lid, descr, qualify_constructors f pat)
++          ~f:(fun (({ Location.txt ; _ } as lid), lbl_des, pat) ->
++            let lid_name = flatten txt |> String.concat ~sep:"." in
++            let pat = qualify_constructors f pat in
++            (* Un-mangle *)
++            match unmangling_tables with
++            | Some (_, labels) ->
++              (match Hashtbl.find_some labels lid_name with
++              | Some lbl_des -> (
++                  { lid with txt = Lident lbl_des.Types.lbl_name },
++                  lbl_des,
++                  pat
++                )
++              | None -> (lid, lbl_des, pat))
++            | None -> (lid, lbl_des, pat))
++      in
++      let closed =
++        if List.length labels > 0 then
++          let _, lbl_des, _ = List.hd labels in
++          if List.length labels = Array.length lbl_des.Types.lbl_all then
++            Asttypes.Closed
++          else Asttypes.Open
++        else closed
+       in
+       Tpat_record (labels, closed)
+     | Tpat_construct (lid, cstr_desc, ps) ->
+       let lid =
+         match lid.Asttypes.txt with
+         | Longident.Lident name ->
++          (* Un-mangle *)
++          let name = match unmangling_tables with
++            | Some (constrs, _) ->
++              (match  Hashtbl.find_some constrs name with
++              | Some cstr_des -> cstr_des.Types.cstr_name
++              | None -> name)
++            | None -> name
++          in
+           begin match (Btype.repr pat.pat_type).Types.desc with
+           | Types.Tconstr (path, _, _) ->
+             let path = f pat.pat_env path in
+@@ -368,7 +432,7 @@ let rec qualify_constructors f pat =
+               | Ldot (path, _) -> { lid with Asttypes.txt = Ldot (path, name) }
+               | _ -> assert false
+             end
+-          | _ -> lid
++          | _ -> { lid with Asttypes.txt = Lident name }
+           end
+         | _ -> lid (* already qualified *)
+       in
+@@ -444,9 +508,18 @@ let node config source node parents =
+         (fun () -> Mreader.print_pretty config source (Pretty_pattern p))
+     ) ;
+     let pss = List.map patterns ~f:(fun x -> [ x ]) in
+-    begin match Parmatch.complete_partial pss with
+-    | Some pat ->
+-      let pat  = qualify_constructors Printtyp.shorten_type_path pat in
++    let match_, e_typ = get_match parents in
++    let pred = Typecore.partial_pred
++      ~lev:Btype.generic_level
++      match_.Typedtree.exp_env
++      e_typ
++    in
++    begin match Parmatch.complete_partial ~pred pss with
++    | Some pat, unmangling_tables ->
++      (* Unmangling and prefixing *)
++      let pat =
++        qualify_constructors ~unmangling_tables Printtyp.shorten_type_path pat
++      in
+       let ppat = filter_pat_attr (Untypeast.untype_pattern pat) in
+       let case = Ast_helper.Exp.case ppat placeholder in
+       let loc =
+@@ -456,7 +529,7 @@ let node config source node parents =
+       let str = Mreader.print_pretty
+            config source (Pretty_case_list [ case ]) in
+       loc, str
+-    | None ->
++    | None, _ ->
+       if not (destructible patt) then raise Nothing_to_do else
+       let ty = patt.Typedtree.pat_type in
+       begin match gen_patterns patt.Typedtree.pat_env ty with
+diff --git a/src/ocaml/merlin_specific/402/raw_compat.ml b/src/ocaml/merlin_specific/402/raw_compat.ml
+index d45a849f..b019413d 100644
+--- a/src/ocaml/merlin_specific/402/raw_compat.ml
++++ b/src/ocaml/merlin_specific/402/raw_compat.ml
+@@ -161,6 +161,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function (_,cs,_) -> cs
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Pconst_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/402/raw_compat.mli b/src/ocaml/merlin_specific/402/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/402/raw_compat.mli
++++ b/src/ocaml/merlin_specific/402/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/403/raw_compat.ml b/src/ocaml/merlin_specific/403/raw_compat.ml
+index 89b3d1f9..11868d08 100644
+--- a/src/ocaml/merlin_specific/403/raw_compat.ml
++++ b/src/ocaml/merlin_specific/403/raw_compat.ml
+@@ -140,6 +140,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function (_,cs,_) -> cs
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/403/raw_compat.mli b/src/ocaml/merlin_specific/403/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/403/raw_compat.mli
++++ b/src/ocaml/merlin_specific/403/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/404/raw_compat.ml b/src/ocaml/merlin_specific/404/raw_compat.ml
+index 780d87c1..8c6b6e2b 100644
+--- a/src/ocaml/merlin_specific/404/raw_compat.ml
++++ b/src/ocaml/merlin_specific/404/raw_compat.ml
+@@ -150,6 +150,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function (_,cs,_) -> cs
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/404/raw_compat.mli b/src/ocaml/merlin_specific/404/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/404/raw_compat.mli
++++ b/src/ocaml/merlin_specific/404/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/405/raw_compat.ml b/src/ocaml/merlin_specific/405/raw_compat.ml
+index f7ca09bd..f5b41749 100644
+--- a/src/ocaml/merlin_specific/405/raw_compat.ml
++++ b/src/ocaml/merlin_specific/405/raw_compat.ml
+@@ -150,6 +150,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function {cases; _} -> cases
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++| Typedtree.Texp_match (e, _, _, _) -> e
++| _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/405/raw_compat.mli b/src/ocaml/merlin_specific/405/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/405/raw_compat.mli
++++ b/src/ocaml/merlin_specific/405/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/406/raw_compat.ml b/src/ocaml/merlin_specific/406/raw_compat.ml
+index bcb48a8e..de54287b 100644
+--- a/src/ocaml/merlin_specific/406/raw_compat.ml
++++ b/src/ocaml/merlin_specific/406/raw_compat.ml
+@@ -152,6 +152,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function {cases; _} -> cases
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/406/raw_compat.mli b/src/ocaml/merlin_specific/406/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/406/raw_compat.mli
++++ b/src/ocaml/merlin_specific/406/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/407/raw_compat.ml b/src/ocaml/merlin_specific/407/raw_compat.ml
+index 080eb595..61ccab25 100644
+--- a/src/ocaml/merlin_specific/407/raw_compat.ml
++++ b/src/ocaml/merlin_specific/407/raw_compat.ml
+@@ -152,6 +152,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function {cases; _} -> cases
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/407/raw_compat.mli b/src/ocaml/merlin_specific/407/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/407/raw_compat.mli
++++ b/src/ocaml/merlin_specific/407/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/408/raw_compat.ml b/src/ocaml/merlin_specific/408/raw_compat.ml
+index c6487b64..9aedf0e0 100644
+--- a/src/ocaml/merlin_specific/408/raw_compat.ml
++++ b/src/ocaml/merlin_specific/408/raw_compat.ml
+@@ -157,6 +157,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function {cases; _} -> cases
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/408/raw_compat.mli b/src/ocaml/merlin_specific/408/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/408/raw_compat.mli
++++ b/src/ocaml/merlin_specific/408/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/409/raw_compat.ml b/src/ocaml/merlin_specific/409/raw_compat.ml
+index c6487b64..9aedf0e0 100644
+--- a/src/ocaml/merlin_specific/409/raw_compat.ml
++++ b/src/ocaml/merlin_specific/409/raw_compat.ml
+@@ -157,6 +157,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function {cases; _} -> cases
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/409/raw_compat.mli b/src/ocaml/merlin_specific/409/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/409/raw_compat.mli
++++ b/src/ocaml/merlin_specific/409/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/merlin_specific/410/raw_compat.ml b/src/ocaml/merlin_specific/410/raw_compat.ml
+index f0c58435..9b6012b2 100644
+--- a/src/ocaml/merlin_specific/410/raw_compat.ml
++++ b/src/ocaml/merlin_specific/410/raw_compat.ml
+@@ -159,6 +159,10 @@ let texp_function_cases = function
+   | Typedtree.Texp_function {cases; _} -> cases
+   | _ -> assert false
+ 
++let tmatch_scrutinee = function
++  | Typedtree.Texp_match (e, _, _) -> e
++  | _ -> assert false
++
+ let const_string (s, o) = Asttypes.Const_string (s, o)
+ 
+ let dummy_type_scheme desc =
+diff --git a/src/ocaml/merlin_specific/410/raw_compat.mli b/src/ocaml/merlin_specific/410/raw_compat.mli
+index 8f2c8b09..2664b68b 100644
+--- a/src/ocaml/merlin_specific/410/raw_compat.mli
++++ b/src/ocaml/merlin_specific/410/raw_compat.mli
+@@ -43,6 +43,8 @@ val select_open_node :
+ 
+ val texp_function_cases : Typedtree.expression_desc -> Typedtree.case list
+ 
++val tmatch_scrutinee : Typedtree.expression_desc -> Typedtree.expression
++
+ val const_string : string * string option -> Asttypes.constant
+ 
+ val dummy_type_scheme : Types.type_desc -> Types.type_expr
+diff --git a/src/ocaml/typing/402/parmatch.ml b/src/ocaml/typing/402/parmatch.ml
+index 20378f49..888ceb03 100644
+--- a/src/ocaml/typing/402/parmatch.ml
++++ b/src/ocaml/typing/402/parmatch.ml
+@@ -2039,27 +2039,27 @@ let do_complete_partial ?pred exhaust pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | Rnone -> None
++    | Rnone -> None, None
+     | Rsome [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (patterns,constrs,labels) = Conv.conv u in
+-          get_first (pred constrs labels) patterns
+-        | None -> Some u
++          get_first (pred constrs labels) patterns, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2067,9 +2067,9 @@ let do_complete_partial ?pred exhaust pss =
+       fatal_error "Parmatch.check_partial"
+     end
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial exhaust pss
++  do_complete_partial ~pred exhaust pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/402/parmatch.mli b/src/ocaml/typing/402/parmatch.mli
+index 71b0c3b0..338be582 100644
+--- a/src/ocaml/typing/402/parmatch.mli
++++ b/src/ocaml/typing/402/parmatch.mli
+@@ -68,6 +68,14 @@ val fluid : pattern -> bool
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++  pred:((label, constructor_description) Hashtbl.t ->
++    (label, label_description) Hashtbl.t ->
++    Parsetree.pattern -> pattern option) ->
++  pattern list list ->
++  pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/402/typecore.mli b/src/ocaml/typing/402/typecore.mli
+index 34c938a4..3d6fd727 100644
+--- a/src/ocaml/typing/402/typecore.mli
++++ b/src/ocaml/typing/402/typecore.mli
+@@ -143,3 +143,13 @@ val create_package_type : Location.t -> Env.t ->
+ 
+ val extract_concrete_record :
+   Env.t -> Types.type_expr -> Path.t * Path.t * Types.label_declaration list
++
++(* Merlin specific *)
++val partial_pred :
++  lev:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/403/parmatch.ml b/src/ocaml/typing/403/parmatch.ml
+index 580db71b..f490e34e 100644
+--- a/src/ocaml/typing/403/parmatch.ml
++++ b/src/ocaml/typing/403/parmatch.ml
+@@ -2306,27 +2306,27 @@ let do_complete_partial ?pred exhaust pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | Rnone -> None
++    | Rnone -> None, None
+     | Rsome [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2335,9 +2335,9 @@ let do_complete_partial ?pred exhaust pss =
+     end
+ 
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial exhaust_gadt pss
++  do_complete_partial ~pred exhaust_gadt pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/403/parmatch.mli b/src/ocaml/typing/403/parmatch.mli
+index ab4e27fa..3a8b1288 100644
+--- a/src/ocaml/typing/403/parmatch.mli
++++ b/src/ocaml/typing/403/parmatch.mli
+@@ -84,6 +84,14 @@ val check_ambiguous_bindings : case list -> unit
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++  pred:((label, constructor_description) Hashtbl.t ->
++    (label, label_description) Hashtbl.t ->
++    Parsetree.pattern -> pattern option) ->
++  pattern list list ->
++  pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/403/typecore.mli b/src/ocaml/typing/403/typecore.mli
+index 94e3327b..fd9cd31d 100644
+--- a/src/ocaml/typing/403/typecore.mli
++++ b/src/ocaml/typing/403/typecore.mli
+@@ -154,3 +154,16 @@ val constant: Parsetree.constant -> (Asttypes.constant, error) result
+ 
+ val extract_concrete_record :
+   Env.t -> Types.type_expr -> Path.t * Path.t * Types.label_declaration list
++
++(* Merlin specific *)
++type type_pat_mode
++val partial_pred :
++  lev:int ->
++  ?mode:type_pat_mode ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/404/parmatch.ml b/src/ocaml/typing/404/parmatch.ml
+index 4f87bb6f..a2571b74 100644
+--- a/src/ocaml/typing/404/parmatch.ml
++++ b/src/ocaml/typing/404/parmatch.ml
+@@ -2301,27 +2301,27 @@ let do_complete_partial ?pred exhaust pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | Rnone -> None
++    | Rnone -> None, None
+     | Rsome [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2330,9 +2330,9 @@ let do_complete_partial ?pred exhaust pss =
+     end
+ 
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial exhaust_gadt pss
++  do_complete_partial ~pred exhaust_gadt pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/404/parmatch.mli b/src/ocaml/typing/404/parmatch.mli
+index c56aaed0..12b0bad5 100644
+--- a/src/ocaml/typing/404/parmatch.mli
++++ b/src/ocaml/typing/404/parmatch.mli
+@@ -84,6 +84,14 @@ val check_ambiguous_bindings : case list -> unit
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++  pred:((label, constructor_description) Hashtbl.t ->
++    (label, label_description) Hashtbl.t ->
++    Parsetree.pattern -> pattern option) ->
++  pattern list list ->
++  pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/404/typecore.mli b/src/ocaml/typing/404/typecore.mli
+index 6ab549ab..891cc97b 100644
+--- a/src/ocaml/typing/404/typecore.mli
++++ b/src/ocaml/typing/404/typecore.mli
+@@ -154,3 +154,16 @@ val constant: Parsetree.constant -> (Asttypes.constant, error) result
+ 
+ val extract_concrete_record :
+   Env.t -> Types.type_expr -> Path.t * Path.t * Types.label_declaration list
++
++(* Merlin specific *)
++type type_pat_mode
++val partial_pred :
++  lev:int ->
++  ?mode:type_pat_mode ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/405/parmatch.ml b/src/ocaml/typing/405/parmatch.ml
+index 91c3b768..336f460b 100644
+--- a/src/ocaml/typing/405/parmatch.ml
++++ b/src/ocaml/typing/405/parmatch.ml
+@@ -2316,27 +2316,27 @@ let do_complete_partial ?pred exhaust pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | Rnone -> None
++    | Rnone -> None, None
+     | Rsome [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2345,9 +2345,9 @@ let do_complete_partial ?pred exhaust pss =
+     end
+ 
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial exhaust_gadt pss
++  do_complete_partial ~pred exhaust_gadt pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/405/parmatch.mli b/src/ocaml/typing/405/parmatch.mli
+index c56aaed0..12b0bad5 100644
+--- a/src/ocaml/typing/405/parmatch.mli
++++ b/src/ocaml/typing/405/parmatch.mli
+@@ -84,6 +84,14 @@ val check_ambiguous_bindings : case list -> unit
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++  pred:((label, constructor_description) Hashtbl.t ->
++    (label, label_description) Hashtbl.t ->
++    Parsetree.pattern -> pattern option) ->
++  pattern list list ->
++  pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/405/typecore.mli b/src/ocaml/typing/405/typecore.mli
+index c2742c92..526699e0 100644
+--- a/src/ocaml/typing/405/typecore.mli
++++ b/src/ocaml/typing/405/typecore.mli
+@@ -156,3 +156,16 @@ val constant: Parsetree.constant -> (Asttypes.constant, error) result
+ 
+ val extract_concrete_record :
+   Env.t -> Types.type_expr -> Path.t * Path.t * Types.label_declaration list
++
++(* Merlin specific *)
++type type_pat_mode
++val partial_pred :
++  lev:int ->
++  ?mode:type_pat_mode ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/406/parmatch.ml b/src/ocaml/typing/406/parmatch.ml
+index d7fa5c85..a2d525cf 100644
+--- a/src/ocaml/typing/406/parmatch.ml
++++ b/src/ocaml/typing/406/parmatch.ml
+@@ -774,7 +774,7 @@ let complete_constrs p all_tags =
+   let constrs = get_variant_constructors p.pat_env c.cstr_res in
+   let others =
+     List.filter
+-      (fun cnstr -> ConstructorTagHashtbl.mem not_tags cnstr.cstr_tag) 
++      (fun cnstr -> ConstructorTagHashtbl.mem not_tags cnstr.cstr_tag)
+       constrs in
+   let const, nonconst =
+     List.partition (fun cnstr -> cnstr.cstr_arity = 0) others in
+@@ -2336,27 +2336,27 @@ let do_complete_partial ?pred exhaust pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | Rnone -> None
++    | Rnone -> None, None
+     | Rsome [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2365,9 +2365,9 @@ let do_complete_partial ?pred exhaust pss =
+     end
+ 
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial exhaust_gadt pss
++  do_complete_partial ~pred exhaust_gadt pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/406/parmatch.mli b/src/ocaml/typing/406/parmatch.mli
+index 3bbc60d0..c467bea4 100644
+--- a/src/ocaml/typing/406/parmatch.mli
++++ b/src/ocaml/typing/406/parmatch.mli
+@@ -91,6 +91,14 @@ val some_other_tag : label
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++  pred:((label, constructor_description) Hashtbl.t ->
++    (label, label_description) Hashtbl.t ->
++    Parsetree.pattern -> pattern option) ->
++  pattern list list ->
++  pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/406/typecore.mli b/src/ocaml/typing/406/typecore.mli
+index de87cb5d..bcae6529 100644
+--- a/src/ocaml/typing/406/typecore.mli
++++ b/src/ocaml/typing/406/typecore.mli
+@@ -164,3 +164,16 @@ val check_recursive_class_bindings :
+ 
+ val extract_concrete_record :
+   Env.t -> Types.type_expr -> Path.t * Path.t * Types.label_declaration list
++
++(* Merlin specific *)
++type type_pat_mode
++val partial_pred :
++  lev:int ->
++  ?mode:type_pat_mode ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/407/parmatch.ml b/src/ocaml/typing/407/parmatch.ml
+index bf56a876..bf4b7359 100644
+--- a/src/ocaml/typing/407/parmatch.ml
++++ b/src/ocaml/typing/407/parmatch.ml
+@@ -2482,27 +2482,27 @@ let do_complete_partial ?pred pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | No_matching_value -> None
++    | No_matching_value -> None, None
+     | Witnesses [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2510,9 +2510,9 @@ let do_complete_partial ?pred pss =
+       fatal_error "Parmatch.check_partial"
+     end
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial pss
++  do_complete_partial ~pred pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/407/parmatch.mli b/src/ocaml/typing/407/parmatch.mli
+index ad1f1e9f..cb3dddce 100644
+--- a/src/ocaml/typing/407/parmatch.mli
++++ b/src/ocaml/typing/407/parmatch.mli
+@@ -121,6 +121,14 @@ val some_private_tag : label
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++pred:((label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern -> pattern option) ->
++pattern list list ->
++pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/407/typecore.mli b/src/ocaml/typing/407/typecore.mli
+index 8555e694..35ff05d0 100644
+--- a/src/ocaml/typing/407/typecore.mli
++++ b/src/ocaml/typing/407/typecore.mli
+@@ -198,3 +198,15 @@ val check_recursive_class_bindings :
+ val extract_concrete_record :
+   Env.t -> Types.type_expr -> Path.t * Path.t * Types.label_declaration list
+ 
++(* Merlin specific *)
++type type_pat_mode
++val partial_pred :
++  lev:int ->
++  ?mode:type_pat_mode ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/408/parmatch.ml b/src/ocaml/typing/408/parmatch.ml
+index 0418792f..0ed0c4dc 100644
+--- a/src/ocaml/typing/408/parmatch.ml
++++ b/src/ocaml/typing/408/parmatch.ml
+@@ -2503,27 +2503,27 @@ let do_complete_partial ?pred pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | No_matching_value -> None
++    | No_matching_value -> None, None
+     | Witnesses [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2531,9 +2531,9 @@ let do_complete_partial ?pred pss =
+       fatal_error "Parmatch.check_partial"
+     end
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial pss
++  do_complete_partial ~pred pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/408/parmatch.mli b/src/ocaml/typing/408/parmatch.mli
+index 9002feb3..0e8c014d 100644
+--- a/src/ocaml/typing/408/parmatch.mli
++++ b/src/ocaml/typing/408/parmatch.mli
+@@ -122,6 +122,14 @@ val some_private_tag : label
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++pred:((label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern -> pattern option) ->
++pattern list list ->
++pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/408/typecore.mli b/src/ocaml/typing/408/typecore.mli
+index c1cdc1e3..161c17dc 100644
+--- a/src/ocaml/typing/408/typecore.mli
++++ b/src/ocaml/typing/408/typecore.mli
+@@ -215,3 +215,16 @@ val constant: Parsetree.constant -> (Asttypes.constant, error) result
+ val check_recursive_bindings : Env.t -> Typedtree.value_binding list -> unit
+ val check_recursive_class_bindings :
+   Env.t -> Ident.t list -> Typedtree.class_expr list -> unit
++
++(* Merlin specific *)
++type type_pat_mode
++val partial_pred :
++  lev:int ->
++  ?mode:type_pat_mode ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/409/parmatch.ml b/src/ocaml/typing/409/parmatch.ml
+index ed2fb244..d7208dff 100644
+--- a/src/ocaml/typing/409/parmatch.ml
++++ b/src/ocaml/typing/409/parmatch.ml
+@@ -2501,27 +2501,27 @@ let do_complete_partial ?pred pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | No_matching_value -> None
++    | No_matching_value -> None, None
+     | Witnesses [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2529,9 +2529,9 @@ let do_complete_partial ?pred pss =
+       fatal_error "Parmatch.check_partial"
+     end
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial pss
++  do_complete_partial ~pred pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/409/parmatch.mli b/src/ocaml/typing/409/parmatch.mli
+index 9002feb3..0e8c014d 100644
+--- a/src/ocaml/typing/409/parmatch.mli
++++ b/src/ocaml/typing/409/parmatch.mli
+@@ -122,6 +122,14 @@ val some_private_tag : label
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++pred:((label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern -> pattern option) ->
++pattern list list ->
++pattern option *
++  ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t)
++  option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/409/typecore.mli b/src/ocaml/typing/409/typecore.mli
+index bfa62702..e18f5f21 100644
+--- a/src/ocaml/typing/409/typecore.mli
++++ b/src/ocaml/typing/409/typecore.mli
+@@ -217,3 +217,16 @@ val constant: Parsetree.constant -> (Asttypes.constant, error) result
+ val check_recursive_bindings : Env.t -> Typedtree.value_binding list -> unit
+ val check_recursive_class_bindings :
+   Env.t -> Ident.t list -> Typedtree.class_expr list -> unit
++
++(* Merlin specific *)
++type type_pat_mode
++val partial_pred :
++  lev:int ->
++  ?mode:type_pat_mode ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/410/parmatch.ml b/src/ocaml/typing/410/parmatch.ml
+index 343ace50..563178bf 100644
+--- a/src/ocaml/typing/410/parmatch.ml
++++ b/src/ocaml/typing/410/parmatch.ml
+@@ -2640,27 +2640,27 @@ let do_complete_partial ?pred pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | No_matching_value -> None
++    | No_matching_value -> None, None
+     | Witnesses [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2668,9 +2668,9 @@ let do_complete_partial ?pred pss =
+       fatal_error "Parmatch.check_partial"
+     end
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial pss
++  do_complete_partial ~pred pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/410/parmatch.mli b/src/ocaml/typing/410/parmatch.mli
+index 1adcdb8a..46f5e200 100644
+--- a/src/ocaml/typing/410/parmatch.mli
++++ b/src/ocaml/typing/410/parmatch.mli
+@@ -130,6 +130,14 @@ val some_private_tag : label
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++  pred:((label, constructor_description) Hashtbl.t ->
++    (label, label_description) Hashtbl.t ->
++    Parsetree.pattern -> pattern option) ->
++  pattern list list ->
++  pattern option *
++    ((label, constructor_description) Hashtbl.t *
++    (label, label_description) Hashtbl.t)
++    option
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/410/typecore.ml b/src/ocaml/typing/410/typecore.ml
+index df411305..1fd5297a 100644
+--- a/src/ocaml/typing/410/typecore.ml
++++ b/src/ocaml/typing/410/typecore.ml
+@@ -5421,3 +5421,8 @@ let () =
+ let type_expect ?in_function env e ty = type_expect ?in_function env e ty
+ let type_exp env e = type_exp env e
+ let type_argument env e t1 t2 = type_argument env e t1 t2
++
++(* Merlin specific *)
++let partial_pred =
++  let splitting_mode = Refine_or {inside_nonsplit_or = false} in
++  partial_pred ~splitting_mode
+diff --git a/src/ocaml/typing/410/typecore.mli b/src/ocaml/typing/410/typecore.mli
+index a67ddb10..e073f072 100644
+--- a/src/ocaml/typing/410/typecore.mli
++++ b/src/ocaml/typing/410/typecore.mli
+@@ -215,3 +215,14 @@ val constant: Parsetree.constant -> (Asttypes.constant, error) result
+ val check_recursive_bindings : Env.t -> Typedtree.value_binding list -> unit
+ val check_recursive_class_bindings :
+   Env.t -> Ident.t list -> Typedtree.class_expr list -> unit
++
++(* Merlin specific *)
++val partial_pred :
++  lev:int ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.pattern option
+diff --git a/src/ocaml/typing/411/parmatch.ml b/src/ocaml/typing/411/parmatch.ml
+index 78632b0c..4c0c4498 100644
+--- a/src/ocaml/typing/411/parmatch.ml
++++ b/src/ocaml/typing/411/parmatch.ml
+@@ -2653,27 +2653,27 @@ let do_complete_partial ?pred pss =
+   (* c/p of [do_check_partial] without the parts concerning the generation of
+      the error message or the warning emiting. *)
+   match pss with
+-  | [] -> None
++  | [] -> None, None
+   | ps :: _  ->
+     begin match exhaust None pss (List.length ps) with
+-    | No_matching_value -> None
++    | No_matching_value -> None, None
+     | Witnesses [u] ->
+       let v =
+         match pred with
+         | Some pred ->
+           let (pattern,constrs,labels) = Conv.conv u in
+-          pred constrs labels pattern
+-        | None -> Some u
++          pred constrs labels pattern, Some (constrs, labels)
++        | None -> Some u, None
+       in
+       begin match v with
+-      | None -> None
+-      | Some v ->
++      | None, _ -> None, None
++      | Some v, unmangling_tables ->
+         match v.pat_desc with
+         | Tpat_construct (_, {cstr_name="*extension*"}, _) ->
+           (* Matching over values of open types must include a wild card pattern
+             in order to be exhaustive. *)
+-          Some omega
+-        | _ -> Some v
++          Some omega, unmangling_tables
++        | _ -> Some v, unmangling_tables
+       end
+     | _ ->
+       (* FIXME: Are we sure we'll never get [Rsome lst]? This would be better
+@@ -2681,9 +2681,10 @@ let do_complete_partial ?pred pss =
+       fatal_error "Parmatch.check_partial"
+     end
+ 
+-let complete_partial pss =
++let complete_partial ~pred pss =
+   let pss = get_mins le_pats pss in
+-  do_complete_partial pss
++
++  do_complete_partial ~pred pss
+ 
+ let return_unused casel =
+   let rec do_rec acc pref = function
+diff --git a/src/ocaml/typing/411/parmatch.mli b/src/ocaml/typing/411/parmatch.mli
+index 0edb6b8b..2c29dc7c 100644
+--- a/src/ocaml/typing/411/parmatch.mli
++++ b/src/ocaml/typing/411/parmatch.mli
+@@ -190,6 +190,13 @@ val some_private_tag : label
+ (* Merlin specific *)
+ (*******************)
+ 
+-val complete_partial : pattern list list -> pattern option
++val complete_partial :
++  pred:((label, constructor_description) Hashtbl.t ->
++        (label, label_description) Hashtbl.t ->
++        Parsetree.pattern -> pattern option) ->
++  pattern list list ->
++  pattern option * ((label, constructor_description) Hashtbl.t *
++  (label, label_description) Hashtbl.t) option
++
+ val return_unused: pattern list ->
+   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list
+diff --git a/src/ocaml/typing/411/typecore.ml b/src/ocaml/typing/411/typecore.ml
+index 5c5d8af2..4176c7f0 100644
+--- a/src/ocaml/typing/411/typecore.ml
++++ b/src/ocaml/typing/411/typecore.ml
+@@ -5715,3 +5715,8 @@ let () =
+ let type_expect ?in_function env e ty = type_expect ?in_function env e ty
+ let type_exp env e = type_exp env e
+ let type_argument env e t1 t2 = type_argument env e t1 t2
++
++(* Merlin specific *)
++let partial_pred =
++  let splitting_mode = Refine_or {inside_nonsplit_or = false} in
++  partial_pred ~splitting_mode
+diff --git a/src/ocaml/typing/411/typecore.mli b/src/ocaml/typing/411/typecore.mli
+index 776f91cc..5a232c6f 100644
+--- a/src/ocaml/typing/411/typecore.mli
++++ b/src/ocaml/typing/411/typecore.mli
+@@ -226,3 +226,14 @@ val constant: Parsetree.constant -> (Asttypes.constant, error) result
+ val check_recursive_bindings : Env.t -> Typedtree.value_binding list -> unit
+ val check_recursive_class_bindings :
+   Env.t -> Ident.t list -> Typedtree.class_expr list -> unit
++
++(* Merlin specific *)
++val partial_pred :
++  lev:int ->
++  ?explode:int ->
++  Env.t ->
++  type_expr ->
++  (label, constructor_description) Hashtbl.t ->
++  (label, label_description) Hashtbl.t ->
++  Parsetree.pattern ->
++  Typedtree.value Typedtree.pattern_desc Typedtree.pattern_data option
+diff --git a/tests/test-dirs/destruct/complete.t b/tests/test-dirs/destruct/complete.t
+index e3e211c9..adca15cc 100644
+--- a/tests/test-dirs/destruct/complete.t
++++ b/tests/test-dirs/destruct/complete.t
+@@ -224,8 +224,8 @@ Test 4.1
+   >  | Int : int -> int term                        \
+   >  | Add : (int -> int -> int) term               \
+   >  | App : ('b -> 'a) term * 'b term -> 'a term   \
+-  > let eval : type a. a term -> a term =           \
+-  >   fun x : a term -> match x with                \
++  > let eval : type a. a term -> unit =           \
++  >   fun (x : a term) -> match x with                \
+   >   | Int _ -> ()                                 \
+   >   | Add -> ()                                   \
+   > EOF
+@@ -257,7 +257,7 @@ Test 4.2
+   >  | Int : int -> int term                        \
+   >  | Add : (int -> int -> int) term               \
+   >  | App : ('b -> 'a) term * 'b term -> 'a term   \
+-  > let eval : type a. a term -> a term =           \
++  > let eval (type a) : a term -> unit =           \
+   >   function                                      \
+   >   | Int _ -> ()                                 \
+   >   | Add -> ()                                   \
+@@ -283,7 +283,7 @@ Test 4.2
+     "notifications": []
+   }
+ 
+-Test 4.3 : FIXME this match IS exhaustive
++Test 4.3 : this match IS exhaustive
+ 
+   $ cat >typ4b.ml <<EOF         \
+   > type _ t =                  \
+@@ -297,20 +297,8 @@ Test 4.3 : FIXME this match IS exhaustive
+   $ $MERLIN single case-analysis -start 6:4 -end 6:4 -filename typ4b.ml <typ4b.ml | \
+   > sed -e 's/, /,/g' | sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
+   {
+-    "class": "return",
+-    "value": [
+-      {
+-        "start": {
+-          "line": 6,
+-          "col": 11
+-        },
+-        "end": {
+-          "line": 6,
+-          "col": 11
+-        }
+-      },
+-      "|B -> (??)"
+-    ],
++    "class": "error",
++    "value": "Nothing to do",
+     "notifications": []
+   }
+ 
+@@ -345,3 +333,31 @@ Test 5.1 : Module path
+     ],
+     "notifications": []
+   }
++
++
++Test 5.1 : Module path (with function)
++
++  $ $MERLIN single case-analysis -start 4:4 -end 4:4 -filename module_path.ml <<EOF \
++  > module T = struct type t = A | B of int end \
++  >  \
++  > let g = function \
++  >   | T.A -> () \
++  > EOF
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 4,
++          "col": 13
++        },
++        "end": {
++          "line": 4,
++          "col": 13
++        }
++      },
++      "
++  | T.B _ -> (??)"
++    ],
++    "notifications": []
++  }
+diff --git a/tests/test-dirs/destruct/refine.t b/tests/test-dirs/destruct/refine.t
+index a1dcfdfd..527d077f 100644
+--- a/tests/test-dirs/destruct/refine.t
++++ b/tests/test-dirs/destruct/refine.t
+@@ -123,6 +123,36 @@ Test 2.1
+     "notifications": []
+   }
+ 
++Test 2.2
++
++  $ cat >typ4b.ml <<EOF                       \
++  > type a = A | B                            \
++  > type recd = { x : a; y : bool; z : a }    \
++  > let f (r : recd) =                        \
++  >   match r with                            \
++  >   | { x = _ ; y ; _ } -> ()           \
++  > EOF
++
++  $ $MERLIN single case-analysis -start 5:11 -end 5:11 -filename typ4b.ml <typ4b.ml | \
++  > sed -e 's/ *| */|/g' | tr -d '\n' | jq '.'
++  {
++    "class": "return",
++    "value": [
++      {
++        "start": {
++          "line": 5,
++          "col": 4
++        },
++        "end": {
++          "line": 5,
++          "col": 21
++        }
++      },
++      "{ x = A; y;_}|{ x = B; y;_}"
++    ],
++    "notifications": []
++  }
++
+ ##########################
+ ## POLYMORPHIC VARIANTS ##
+ ##########################
+-- 
+2.29.2
+

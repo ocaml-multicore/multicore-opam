@@ -1,0 +1,810 @@
+From bfa2d5feb27e9d8369a5cdb5d52ff116ced0c4b8 Mon Sep 17 00:00:00 2001
+From: "matt@pallissard.net" <matt@pallissard.net>
+Date: Tue, 17 Nov 2020 22:08:25 -0800
+Subject: [PATCH 15/16] multicore: add upstream multicore files
+
+---
+ .../file_formats/cmi_format.ml                | 111 ++++++++++
+ .../file_formats/cmi_format.mli               |  51 +++++
+ .../file_formats/cmt_format.ml                | 194 ++++++++++++++++++
+ .../file_formats/cmt_format.mli               | 123 +++++++++++
+ upstream/ocaml_410+multicore/parsing          |  37 ++++
+ upstream/ocaml_410+multicore/typing           |  87 ++++++++
+ upstream/ocaml_410+multicore/utils            | 140 +++++++++++++
+ 7 files changed, 743 insertions(+)
+ create mode 100644 upstream/ocaml_410+multicore/file_formats/cmi_format.ml
+ create mode 100644 upstream/ocaml_410+multicore/file_formats/cmi_format.mli
+ create mode 100644 upstream/ocaml_410+multicore/file_formats/cmt_format.ml
+ create mode 100644 upstream/ocaml_410+multicore/file_formats/cmt_format.mli
+ create mode 100644 upstream/ocaml_410+multicore/parsing
+ create mode 100644 upstream/ocaml_410+multicore/typing
+ create mode 100644 upstream/ocaml_410+multicore/utils
+
+diff --git a/upstream/ocaml_410+multicore/file_formats/cmi_format.ml b/upstream/ocaml_410+multicore/file_formats/cmi_format.ml
+new file mode 100644
+index 00000000..a98520a8
+--- /dev/null
++++ b/upstream/ocaml_410+multicore/file_formats/cmi_format.ml
+@@ -0,0 +1,111 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*                   Fabrice Le Fessant, INRIA Saclay                     *)
++(*                                                                        *)
++(*   Copyright 2012 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++open Misc
++
++type pers_flags =
++  | Rectypes
++  | Alerts of alerts
++  | Opaque
++  | Unsafe_string
++
++type error =
++  | Not_an_interface of filepath
++  | Wrong_version_interface of filepath * string
++  | Corrupted_interface of filepath
++
++exception Error of error
++
++type cmi_infos = {
++    cmi_name : Misc.modname;
++    cmi_sign : Types.signature_item list;
++    cmi_crcs : crcs;
++    cmi_flags : pers_flags list;
++}
++
++let input_cmi ic =
++  let (name, sign) = input_value ic in
++  let crcs = input_value ic in
++  let flags = input_value ic in
++  {
++      cmi_name = name;
++      cmi_sign = sign;
++      cmi_crcs = crcs;
++      cmi_flags = flags;
++    }
++
++let read_cmi filename =
++  let ic = open_in_bin filename in
++  try
++    let buffer =
++      really_input_string ic (String.length Config.cmi_magic_number)
++    in
++    if buffer <> Config.cmi_magic_number then begin
++      close_in ic;
++      let pre_len = String.length Config.cmi_magic_number - 3 in
++      if String.sub buffer 0 pre_len
++          = String.sub Config.cmi_magic_number 0 pre_len then
++      begin
++        let msg =
++          if buffer < Config.cmi_magic_number then "an older" else "a newer" in
++        raise (Error (Wrong_version_interface (filename, msg)))
++      end else begin
++        raise(Error(Not_an_interface filename))
++      end
++    end;
++    let cmi = input_cmi ic in
++    close_in ic;
++    cmi
++  with End_of_file | Failure _ ->
++      close_in ic;
++      raise(Error(Corrupted_interface(filename)))
++    | Error e ->
++      close_in ic;
++      raise (Error e)
++
++let output_cmi filename oc cmi =
++(* beware: the provided signature must have been substituted for saving *)
++  output_string oc Config.cmi_magic_number;
++  output_value oc (cmi.cmi_name, cmi.cmi_sign);
++  flush oc;
++  let crc = Digest.file filename in
++  let crcs = (cmi.cmi_name, Some crc) :: cmi.cmi_crcs in
++  output_value oc crcs;
++  output_value oc cmi.cmi_flags;
++  crc
++
++(* Error report *)
++
++open Format
++
++let report_error ppf = function
++  | Not_an_interface filename ->
++      fprintf ppf "%a@ is not a compiled interface"
++        Location.print_filename filename
++  | Wrong_version_interface (filename, older_newer) ->
++      fprintf ppf
++        "%a@ is not a compiled interface for this version of OCaml.@.\
++         It seems to be for %s version of OCaml."
++        Location.print_filename filename older_newer
++  | Corrupted_interface filename ->
++      fprintf ppf "Corrupted compiled interface@ %a"
++        Location.print_filename filename
++
++let () =
++  Location.register_error_of_exn
++    (function
++      | Error err -> Some (Location.error_of_printer_file report_error err)
++      | _ -> None
++    )
+diff --git a/upstream/ocaml_410+multicore/file_formats/cmi_format.mli b/upstream/ocaml_410+multicore/file_formats/cmi_format.mli
+new file mode 100644
+index 00000000..d4d665fd
+--- /dev/null
++++ b/upstream/ocaml_410+multicore/file_formats/cmi_format.mli
+@@ -0,0 +1,51 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*                   Fabrice Le Fessant, INRIA Saclay                     *)
++(*                                                                        *)
++(*   Copyright 2012 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++open Misc
++
++type pers_flags =
++  | Rectypes
++  | Alerts of alerts
++  | Opaque
++  | Unsafe_string
++
++type cmi_infos = {
++    cmi_name : modname;
++    cmi_sign : Types.signature_item list;
++    cmi_crcs : crcs;
++    cmi_flags : pers_flags list;
++}
++
++(* write the magic + the cmi information *)
++val output_cmi : string -> out_channel -> cmi_infos -> Digest.t
++
++(* read the cmi information (the magic is supposed to have already been read) *)
++val input_cmi : in_channel -> cmi_infos
++
++(* read a cmi from a filename, checking the magic *)
++val read_cmi : string -> cmi_infos
++
++(* Error report *)
++
++type error =
++  | Not_an_interface of filepath
++  | Wrong_version_interface of filepath * string
++  | Corrupted_interface of filepath
++
++exception Error of error
++
++open Format
++
++val report_error: formatter -> error -> unit
+diff --git a/upstream/ocaml_410+multicore/file_formats/cmt_format.ml b/upstream/ocaml_410+multicore/file_formats/cmt_format.ml
+new file mode 100644
+index 00000000..cf33fa3f
+--- /dev/null
++++ b/upstream/ocaml_410+multicore/file_formats/cmt_format.ml
+@@ -0,0 +1,194 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*                   Fabrice Le Fessant, INRIA Saclay                     *)
++(*                                                                        *)
++(*   Copyright 2012 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++open Cmi_format
++open Typedtree
++
++(* Note that in Typerex, there is an awful hack to save a cmt file
++   together with the interface file that was generated by ocaml (this
++   is because the installed version of ocaml might differ from the one
++   integrated in Typerex).
++*)
++
++
++
++let read_magic_number ic =
++  let len_magic_number = String.length Config.cmt_magic_number in
++  really_input_string ic len_magic_number
++
++type binary_annots =
++  | Packed of Types.signature * string list
++  | Implementation of structure
++  | Interface of signature
++  | Partial_implementation of binary_part array
++  | Partial_interface of binary_part array
++
++and binary_part =
++| Partial_structure of structure
++| Partial_structure_item of structure_item
++| Partial_expression of expression
++| Partial_pattern of pattern
++| Partial_class_expr of class_expr
++| Partial_signature of signature
++| Partial_signature_item of signature_item
++| Partial_module_type of module_type
++
++type cmt_infos = {
++  cmt_modname : string;
++  cmt_annots : binary_annots;
++  cmt_value_dependencies :
++    (Types.value_description * Types.value_description) list;
++  cmt_comments : (string * Location.t) list;
++  cmt_args : string array;
++  cmt_sourcefile : string option;
++  cmt_builddir : string;
++  cmt_loadpath : string list;
++  cmt_source_digest : Digest.t option;
++  cmt_initial_env : Env.t;
++  cmt_imports : (string * Digest.t option) list;
++  cmt_interface_digest : Digest.t option;
++  cmt_use_summaries : bool;
++}
++
++type error =
++    Not_a_typedtree of string
++
++let need_to_clear_env =
++  try ignore (Sys.getenv "OCAML_BINANNOT_WITHENV"); false
++  with Not_found -> true
++
++let keep_only_summary = Env.keep_only_summary
++
++open Tast_mapper
++
++let cenv =
++  {Tast_mapper.default with env = fun _sub env -> keep_only_summary env}
++
++let clear_part = function
++  | Partial_structure s -> Partial_structure (cenv.structure cenv s)
++  | Partial_structure_item s ->
++      Partial_structure_item (cenv.structure_item cenv s)
++  | Partial_expression e -> Partial_expression (cenv.expr cenv e)
++  | Partial_pattern p -> Partial_pattern (cenv.pat cenv p)
++  | Partial_class_expr ce -> Partial_class_expr (cenv.class_expr cenv ce)
++  | Partial_signature s -> Partial_signature (cenv.signature cenv s)
++  | Partial_signature_item s ->
++      Partial_signature_item (cenv.signature_item cenv s)
++  | Partial_module_type s -> Partial_module_type (cenv.module_type cenv s)
++
++let clear_env binary_annots =
++  if need_to_clear_env then
++    match binary_annots with
++    | Implementation s -> Implementation (cenv.structure cenv s)
++    | Interface s -> Interface (cenv.signature cenv s)
++    | Packed _ -> binary_annots
++    | Partial_implementation array ->
++        Partial_implementation (Array.map clear_part array)
++    | Partial_interface array ->
++        Partial_interface (Array.map clear_part array)
++
++  else binary_annots
++
++exception Error of error
++
++let input_cmt ic = (input_value ic : cmt_infos)
++
++let output_cmt oc cmt =
++  output_string oc Config.cmt_magic_number;
++  output_value oc (cmt : cmt_infos)
++
++let read filename =
++(*  Printf.fprintf stderr "Cmt_format.read %s\n%!" filename; *)
++  let ic = open_in_bin filename in
++  Misc.try_finally
++    ~always:(fun () -> close_in ic)
++    (fun () ->
++       let magic_number = read_magic_number ic in
++       let cmi, cmt =
++         if magic_number = Config.cmt_magic_number then
++           None, Some (input_cmt ic)
++         else if magic_number = Config.cmi_magic_number then
++           let cmi = Cmi_format.input_cmi ic in
++           let cmt = try
++               let magic_number = read_magic_number ic in
++               if magic_number = Config.cmt_magic_number then
++                 let cmt = input_cmt ic in
++                 Some cmt
++               else None
++             with _ -> None
++           in
++           Some cmi, cmt
++         else
++           raise(Cmi_format.Error(Cmi_format.Not_an_interface filename))
++       in
++       cmi, cmt
++    )
++
++let read_cmt filename =
++  match read filename with
++      _, None -> raise (Error (Not_a_typedtree filename))
++    | _, Some cmt -> cmt
++
++let read_cmi filename =
++  match read filename with
++      None, _ ->
++        raise (Cmi_format.Error (Cmi_format.Not_an_interface filename))
++    | Some cmi, _ -> cmi
++
++let saved_types = ref []
++let value_deps = ref []
++
++let clear () =
++  saved_types := [];
++  value_deps := []
++
++let add_saved_type b = saved_types := b :: !saved_types
++let get_saved_types () = !saved_types
++let set_saved_types l = saved_types := l
++
++let record_value_dependency vd1 vd2 =
++  if vd1.Types.val_loc <> vd2.Types.val_loc then
++    value_deps := (vd1, vd2) :: !value_deps
++
++let save_cmt filename modname binary_annots sourcefile initial_env cmi =
++  if !Clflags.binary_annotations && not !Clflags.print_types then begin
++    Misc.output_to_file_via_temporary
++       ~mode:[Open_binary] filename
++       (fun temp_file_name oc ->
++         let this_crc =
++           match cmi with
++           | None -> None
++           | Some cmi -> Some (output_cmi temp_file_name oc cmi)
++         in
++         let source_digest = Option.map Digest.file sourcefile in
++         let cmt = {
++           cmt_modname = modname;
++           cmt_annots = clear_env binary_annots;
++           cmt_value_dependencies = !value_deps;
++           cmt_comments = Lexer.comments ();
++           cmt_args = Sys.argv;
++           cmt_sourcefile = sourcefile;
++           cmt_builddir = Location.rewrite_absolute_path (Sys.getcwd ());
++           cmt_loadpath = Load_path.get_paths ();
++           cmt_source_digest = source_digest;
++           cmt_initial_env = if need_to_clear_env then
++               keep_only_summary initial_env else initial_env;
++           cmt_imports = List.sort compare (Env.imports ());
++           cmt_interface_digest = this_crc;
++           cmt_use_summaries = need_to_clear_env;
++         } in
++         output_cmt oc cmt)
++  end;
++  clear ()
+diff --git a/upstream/ocaml_410+multicore/file_formats/cmt_format.mli b/upstream/ocaml_410+multicore/file_formats/cmt_format.mli
+new file mode 100644
+index 00000000..7649de7b
+--- /dev/null
++++ b/upstream/ocaml_410+multicore/file_formats/cmt_format.mli
+@@ -0,0 +1,123 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*                   Fabrice Le Fessant, INRIA Saclay                     *)
++(*                                                                        *)
++(*   Copyright 2012 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++(** cmt and cmti files format. *)
++
++open Misc
++
++(** The layout of a cmt file is as follows:
++      <cmt> := \{<cmi>\} <cmt magic> \{cmt infos\} \{<source info>\}
++    where <cmi> is the cmi file format:
++      <cmi> := <cmi magic> <cmi info>.
++    More precisely, the optional <cmi> part must be present if and only if
++    the file is:
++    - a cmti, or
++    - a cmt, for a ml file which has no corresponding mli (hence no
++    corresponding cmti).
++
++    Thus, we provide a common reading function for cmi and cmt(i)
++    files which returns an option for each of the three parts: cmi
++    info, cmt info, source info. *)
++
++open Typedtree
++
++type binary_annots =
++  | Packed of Types.signature * string list
++  | Implementation of structure
++  | Interface of signature
++  | Partial_implementation of binary_part array
++  | Partial_interface of binary_part array
++
++and binary_part =
++  | Partial_structure of structure
++  | Partial_structure_item of structure_item
++  | Partial_expression of expression
++  | Partial_pattern of pattern
++  | Partial_class_expr of class_expr
++  | Partial_signature of signature
++  | Partial_signature_item of signature_item
++  | Partial_module_type of module_type
++
++type cmt_infos = {
++  cmt_modname : modname;
++  cmt_annots : binary_annots;
++  cmt_value_dependencies :
++    (Types.value_description * Types.value_description) list;
++  cmt_comments : (string * Location.t) list;
++  cmt_args : string array;
++  cmt_sourcefile : string option;
++  cmt_builddir : string;
++  cmt_loadpath : string list;
++  cmt_source_digest : string option;
++  cmt_initial_env : Env.t;
++  cmt_imports : crcs;
++  cmt_interface_digest : Digest.t option;
++  cmt_use_summaries : bool;
++}
++
++type error =
++    Not_a_typedtree of string
++
++exception Error of error
++
++(** [read filename] opens filename, and extract both the cmi_infos, if
++    it exists, and the cmt_infos, if it exists. Thus, it can be used
++    with .cmi, .cmt and .cmti files.
++
++    .cmti files always contain a cmi_infos at the beginning. .cmt files
++    only contain a cmi_infos at the beginning if there is no associated
++    .cmti file.
++*)
++val read : string -> Cmi_format.cmi_infos option * cmt_infos option
++
++val read_cmt : string -> cmt_infos
++val read_cmi : string -> Cmi_format.cmi_infos
++
++(** [save_cmt filename modname binary_annots sourcefile initial_env cmi]
++    writes a cmt(i) file.  *)
++val save_cmt :
++  string ->  (* filename.cmt to generate *)
++  string ->  (* module name *)
++  binary_annots ->
++  string option ->  (* source file *)
++  Env.t -> (* initial env *)
++  Cmi_format.cmi_infos option -> (* if a .cmi was generated *)
++  unit
++
++(* Miscellaneous functions *)
++
++val read_magic_number : in_channel -> string
++
++val clear: unit -> unit
++
++val add_saved_type : binary_part -> unit
++val get_saved_types : unit -> binary_part list
++val set_saved_types : binary_part list -> unit
++
++val record_value_dependency:
++  Types.value_description -> Types.value_description -> unit
++
++
++(*
++
++  val is_magic_number : string -> bool
++  val read : in_channel -> Env.cmi_infos option * t
++  val write_magic_number : out_channel -> unit
++  val write : out_channel -> t -> unit
++
++  val find : string list -> string -> string
++  val read_signature : 'a -> string -> Types.signature * 'b list * 'c list
++
++*)
+diff --git a/upstream/ocaml_410+multicore/parsing b/upstream/ocaml_410+multicore/parsing
+new file mode 100644
+index 00000000..26ba7126
+--- /dev/null
++++ b/upstream/ocaml_410+multicore/parsing
+@@ -0,0 +1,37 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
++(*                                                                        *)
++(*   Copyright 1997 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++(** Auxiliary type for reporting syntax errors
++
++  {b Warning:} this module is unstable and part of
++  {{!Compiler_libs}compiler-libs}.
++
++*)
++
++type error =
++    Unclosed of Location.t * string * Location.t * string
++  | Expecting of Location.t * string
++  | Not_expecting of Location.t * string
++  | Applicative_path of Location.t
++  | Variable_in_scope of Location.t * string
++  | Other of Location.t
++  | Ill_formed_ast of Location.t * string
++  | Invalid_package_type of Location.t * string
++
++exception Error of error
++exception Escape_error
++
++val location_of_error: error -> Location.t
++val ill_formed_ast: Location.t -> string -> 'a
+diff --git a/upstream/ocaml_410+multicore/typing b/upstream/ocaml_410+multicore/typing
+new file mode 100644
+index 00000000..28db6848
+--- /dev/null
++++ b/upstream/ocaml_410+multicore/typing
+@@ -0,0 +1,87 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*      Thomas Gazagnaire (OCamlPro), Fabrice Le Fessant (INRIA Saclay)   *)
++(*                                                                        *)
++(*   Copyright 2007 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++open Parsetree
++
++val lident_of_path : Path.t -> Longident.t
++
++type mapper = {
++  attribute: mapper -> Typedtree.attribute -> attribute;
++  attributes: mapper -> Typedtree.attribute list -> attribute list;
++  binding_op: mapper -> Typedtree.binding_op -> Typedtree.pattern
++              -> binding_op;
++  case: mapper -> Typedtree.case -> case;
++  cases: mapper -> Typedtree.case list -> case list;
++  class_declaration: mapper -> Typedtree.class_declaration -> class_declaration;
++  class_description: mapper -> Typedtree.class_description -> class_description;
++  class_expr: mapper -> Typedtree.class_expr -> class_expr;
++  class_field: mapper -> Typedtree.class_field -> class_field;
++  class_signature: mapper -> Typedtree.class_signature -> class_signature;
++  class_structure: mapper -> Typedtree.class_structure -> class_structure;
++  class_type: mapper -> Typedtree.class_type -> class_type;
++  class_type_declaration: mapper -> Typedtree.class_type_declaration
++                          -> class_type_declaration;
++  class_type_field: mapper -> Typedtree.class_type_field -> class_type_field;
++  constructor_declaration: mapper -> Typedtree.constructor_declaration
++                           -> constructor_declaration;
++  expr: mapper -> Typedtree.expression -> expression;
++  extension_constructor: mapper -> Typedtree.extension_constructor
++                         -> extension_constructor;
++  effect_constructor: mapper -> Typedtree.extension_constructor
++                         -> effect_constructor;
++  include_declaration:
++    mapper -> Typedtree.include_declaration -> include_declaration;
++  include_description:
++    mapper -> Typedtree.include_description -> include_description;
++  label_declaration:
++    mapper -> Typedtree.label_declaration -> label_declaration;
++  location: mapper -> Location.t -> Location.t;
++  module_binding: mapper -> Typedtree.module_binding -> module_binding;
++  module_declaration:
++    mapper -> Typedtree.module_declaration -> module_declaration;
++  module_substitution:
++    mapper -> Typedtree.module_substitution -> module_substitution;
++  module_expr: mapper -> Typedtree.module_expr -> module_expr;
++  module_type: mapper -> Typedtree.module_type -> module_type;
++  module_type_declaration:
++    mapper -> Typedtree.module_type_declaration -> module_type_declaration;
++  package_type: mapper -> Typedtree.package_type -> package_type;
++  open_declaration: mapper -> Typedtree.open_declaration -> open_declaration;
++  open_description: mapper -> Typedtree.open_description -> open_description;
++  pat: mapper -> Typedtree.pattern -> pattern;
++  row_field: mapper -> Typedtree.row_field -> row_field;
++  object_field: mapper -> Typedtree.object_field -> object_field;
++  signature: mapper -> Typedtree.signature -> signature;
++  signature_item: mapper -> Typedtree.signature_item -> signature_item;
++  structure: mapper -> Typedtree.structure -> structure;
++  structure_item: mapper -> Typedtree.structure_item -> structure_item;
++  typ: mapper -> Typedtree.core_type -> core_type;
++  type_declaration: mapper -> Typedtree.type_declaration -> type_declaration;
++  type_extension: mapper -> Typedtree.type_extension -> type_extension;
++  type_exception: mapper -> Typedtree.type_exception -> type_exception;
++  type_kind: mapper -> Typedtree.type_kind -> type_kind;
++  value_binding: mapper -> Typedtree.value_binding -> value_binding;
++  value_description: mapper -> Typedtree.value_description -> value_description;
++  with_constraint:
++    mapper -> (Path.t * Longident.t Location.loc * Typedtree.with_constraint)
++    -> with_constraint;
++}
++
++val default_mapper : mapper
++
++val untype_structure : ?mapper:mapper -> Typedtree.structure -> structure
++val untype_signature : ?mapper:mapper -> Typedtree.signature -> signature
++
++val constant : Asttypes.constant -> Parsetree.constant
+diff --git a/upstream/ocaml_410+multicore/utils b/upstream/ocaml_410+multicore/utils
+new file mode 100644
+index 00000000..b80ab34c
+--- /dev/null
++++ b/upstream/ocaml_410+multicore/utils
+@@ -0,0 +1,140 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*             Pierre Weis && Damien Doligez, INRIA Rocquencourt          *)
++(*                                                                        *)
++(*   Copyright 1998 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++(** Warning definitions
++
++  {b Warning:} this module is unstable and part of
++  {{!Compiler_libs}compiler-libs}.
++
++*)
++
++type loc = {
++  loc_start: Lexing.position;
++  loc_end: Lexing.position;
++  loc_ghost: bool;
++}
++
++type t =
++  | Comment_start                           (*  1 *)
++  | Comment_not_end                         (*  2 *)
++(*| Deprecated --> alert "deprecated" *)    (*  3 *)
++  | Fragile_match of string                 (*  4 *)
++  | Partial_application                     (*  5 *)
++  | Labels_omitted of string list           (*  6 *)
++  | Method_override of string list          (*  7 *)
++  | Partial_match of string                 (*  8 *)
++  | Non_closed_record_pattern of string     (*  9 *)
++  | Statement_type                          (* 10 *)
++  | Unused_match                            (* 11 *)
++  | Unused_pat                              (* 12 *)
++  | Instance_variable_override of string list (* 13 *)
++  | Illegal_backslash                       (* 14 *)
++  | Implicit_public_methods of string list  (* 15 *)
++  | Unerasable_optional_argument            (* 16 *)
++  | Undeclared_virtual_method of string     (* 17 *)
++  | Not_principal of string                 (* 18 *)
++  | Without_principality of string          (* 19 *)
++  | Unused_argument                         (* 20 *)
++  | Nonreturning_statement                  (* 21 *)
++  | Preprocessor of string                  (* 22 *)
++  | Useless_record_with                     (* 23 *)
++  | Bad_module_name of string               (* 24 *)
++  | All_clauses_guarded                     (* 8, used to be 25 *)
++  | Unused_var of string                    (* 26 *)
++  | Unused_var_strict of string             (* 27 *)
++  | Wildcard_arg_to_constant_constr         (* 28 *)
++  | Eol_in_string                           (* 29 *)
++  | Duplicate_definitions of string * string * string * string (* 30 *)
++  | Multiple_definition of string * string * string (* 31 *)
++  | Unused_value_declaration of string      (* 32 *)
++  | Unused_open of string                   (* 33 *)
++  | Unused_type_declaration of string       (* 34 *)
++  | Unused_for_index of string              (* 35 *)
++  | Unused_ancestor of string               (* 36 *)
++  | Unused_constructor of string * bool * bool (* 37 *)
++  | Unused_extension of string * bool * bool * bool (* 38 *)
++  | Unused_rec_flag                         (* 39 *)
++  | Name_out_of_scope of string * string list * bool   (* 40 *)
++  | Ambiguous_name of string list * string list * bool * string (* 41 *)
++  | Disambiguated_name of string            (* 42 *)
++  | Nonoptional_label of string             (* 43 *)
++  | Open_shadow_identifier of string * string (* 44 *)
++  | Open_shadow_label_constructor of string * string (* 45 *)
++  | Bad_env_variable of string * string     (* 46 *)
++  | Attribute_payload of string * string    (* 47 *)
++  | Eliminated_optional_arguments of string list (* 48 *)
++  | No_cmi_file of string * string option   (* 49 *)
++  | Bad_docstring of bool                   (* 50 *)
++  | Expect_tailcall                         (* 51 *)
++  | Fragile_literal_pattern                 (* 52 *)
++  | Misplaced_attribute of string           (* 53 *)
++  | Duplicated_attribute of string          (* 54 *)
++  | Inlining_impossible of string           (* 55 *)
++  | Unreachable_case                        (* 56 *)
++  | Ambiguous_pattern of string list        (* 57 *)
++  | No_cmx_file of string                   (* 58 *)
++  | Assignment_to_non_mutable_value         (* 59 *)
++  | Unused_module of string                 (* 60 *)
++  | Unboxable_type_in_prim_decl of string   (* 61 *)
++  | Constraint_on_gadt                      (* 62 *)
++  | Erroneous_printed_signature of string   (* 63 *)
++  | Unsafe_without_parsing                  (* 64 *)
++  | Redefining_unit of string               (* 65 *)
++  | Unused_open_bang of string              (* 66 *)
++  | Unused_functor_parameter of string      (* 67 *)
++;;
++
++type alert = {kind:string; message:string; def:loc; use:loc}
++
++val parse_options : bool -> string -> unit;;
++
++val parse_alert_option: string -> unit
++  (** Disable/enable alerts based on the parameter to the -alert
++      command-line option.  Raises [Arg.Bad] if the string is not a
++      valid specification.
++  *)
++
++val without_warnings : (unit -> 'a) -> 'a
++  (** Run the thunk with all warnings and alerts disabled. *)
++
++val is_active : t -> bool;;
++val is_error : t -> bool;;
++
++val defaults_w : string;;
++val defaults_warn_error : string;;
++
++type reporting_information =
++  { id : string
++  ; message : string
++  ; is_error : bool
++  ; sub_locs : (loc * string) list;
++  }
++
++val report : t -> [ `Active of reporting_information | `Inactive ]
++val report_alert : alert -> [ `Active of reporting_information | `Inactive ]
++
++exception Errors;;
++
++val check_fatal : unit -> unit;;
++val reset_fatal: unit -> unit
++
++val help_warnings: unit -> unit
++
++type state
++val backup: unit -> state
++val restore: state -> unit
++val mk_lazy: (unit -> 'a) -> 'a Lazy.t
++    (** Like [Lazy.of_fun], but the function is applied with
++        the warning/alert settings at the time [mk_lazy] is called. *)
+-- 
+2.29.2
+

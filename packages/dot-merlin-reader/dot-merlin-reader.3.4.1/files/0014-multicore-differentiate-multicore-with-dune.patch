@@ -1,0 +1,116 @@
+From 6af1ecd62343b69410d8c1d9e23b4bbc945dff8e Mon Sep 17 00:00:00 2001
+From: "matt@pallissard.net" <matt@pallissard.net>
+Date: Tue, 17 Nov 2020 21:59:55 -0800
+Subject: [PATCH 14/16] multicore: differentiate multicore with dune
+
+---
+ src/ocaml/merlin_specific/dune | 11 ++++++++++-
+ src/ocaml/parsing/dune         | 11 ++++++++++-
+ src/ocaml/preprocess/dune      | 11 ++++++++++-
+ src/ocaml/typing/dune          |  6 +++++-
+ src/ocaml/utils/dune           |  6 +++++-
+ 5 files changed, 40 insertions(+), 5 deletions(-)
+
+diff --git a/src/ocaml/merlin_specific/dune b/src/ocaml/merlin_specific/dune
+index 2803959a..05b9627e 100644
+--- a/src/ocaml/merlin_specific/dune
++++ b/src/ocaml/merlin_specific/dune
+@@ -4,7 +4,16 @@ module J = Jbuild_plugin.V1
+ ;;
+ 
+ let ver =
+-  Scanf.sscanf J.ocaml_version "%s@.%s@." (fun maj min -> maj ^ min)
++  try
++    match List.assoc "cmi_magic_number" J.ocamlc_config with
++    | "Caml1999I023" -> "407_0"
++    | _ -> raise Not_found
++  with Not_found ->
++    match
++      Scanf.sscanf J.ocaml_version "%s@.%s@.%d%s" (fun maj min _ var -> maj, min, var)
++    with
++      | maj, min, "+multicore" -> maj ^ min ^ "+multicore"
++      | maj, min, _ -> maj ^ min
+ ;;
+ 
+ Printf.ksprintf J.send {|
+diff --git a/src/ocaml/parsing/dune b/src/ocaml/parsing/dune
+index 5fa11506..b8126263 100644
+--- a/src/ocaml/parsing/dune
++++ b/src/ocaml/parsing/dune
+@@ -4,7 +4,16 @@ module J = Jbuild_plugin.V1
+ ;;
+ 
+ let ver =
+-  Scanf.sscanf J.ocaml_version "%s@.%s@." (fun maj min -> maj ^ min)
++  try
++    match List.assoc "cmi_magic_number" J.ocamlc_config with
++    | "Caml1999I023" -> "407_0"
++    | _ -> raise Not_found
++  with Not_found ->
++    match
++      Scanf.sscanf J.ocaml_version "%s@.%s@.%d%s" (fun maj min _ var -> maj, min, var)
++    with
++      | maj, min, "+multicore" -> maj ^ min ^ "+multicore"
++      | maj, min, _ -> maj ^ min
+ ;;
+ 
+ Printf.ksprintf J.send {|
+diff --git a/src/ocaml/preprocess/dune b/src/ocaml/preprocess/dune
+index 5d471f37..af040ce8 100644
+--- a/src/ocaml/preprocess/dune
++++ b/src/ocaml/preprocess/dune
+@@ -3,7 +3,16 @@
+ module J = Jbuild_plugin.V1
+ 
+ let ver =
+-  Scanf.sscanf J.ocaml_version "%s@.%s@." (fun maj min -> maj ^ min)
++  try
++    match List.assoc "cmi_magic_number" J.ocamlc_config with
++    | "Caml1999I023" -> "407_0"
++    | _ -> raise Not_found
++  with Not_found ->
++    match
++      Scanf.sscanf J.ocaml_version "%s@.%s@.%d%s" (fun maj min _ var -> maj, min, var)
++    with
++      | maj, min, "+multicore" -> maj ^ min ^ "+multicore"
++      | maj, min, _ -> maj ^ min
+ ;;
+ 
+ Printf.ksprintf J.send {|
+diff --git a/src/ocaml/typing/dune b/src/ocaml/typing/dune
+index b639e538..3e209ccd 100644
+--- a/src/ocaml/typing/dune
++++ b/src/ocaml/typing/dune
+@@ -9,7 +9,11 @@ let ver =
+     | "Caml1999I023" -> "407_0"
+     | _ -> raise Not_found
+   with Not_found ->
+-    Scanf.sscanf J.ocaml_version "%s@.%s@." (fun maj min -> maj ^ min)
++    match
++      Scanf.sscanf J.ocaml_version "%s@.%s@.%d%s" (fun maj min _ var -> maj, min, var)
++    with
++      | maj, min, "+multicore" -> maj ^ min ^ "+multicore"
++      | maj, min, _ -> maj ^ min
+ ;;
+ 
+ Printf.ksprintf J.send {|
+diff --git a/src/ocaml/utils/dune b/src/ocaml/utils/dune
+index 0f57f503..64157d1c 100644
+--- a/src/ocaml/utils/dune
++++ b/src/ocaml/utils/dune
+@@ -9,7 +9,11 @@ let ver =
+     | "Caml1999I023" -> "407_0"
+     | _ -> raise Not_found
+   with Not_found ->
+-    Scanf.sscanf J.ocaml_version "%s@.%s@." (fun maj min -> maj ^ min)
++    match
++      Scanf.sscanf J.ocaml_version "%s@.%s@.%d%s" (fun maj min _ var -> maj, min, var)
++    with
++      | maj, min, "+multicore" -> maj ^ min ^ "+multicore"
++      | maj, min, _ -> maj ^ min
+ 
+ let load_path =
+   let version = Scanf.sscanf J.ocaml_version "%d.%d." (fun ma mi -> ma, mi) in
+-- 
+2.29.2
+

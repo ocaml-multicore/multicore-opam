@@ -1,0 +1,35 @@
+From 0d0840036cfbba63c80e52c2c84412b18b36b816 Mon Sep 17 00:00:00 2001
+From: Sora Morimoto <sora@morimoto.io>
+Date: Tue, 10 Nov 2020 20:23:55 +0900
+Subject: [PATCH 04/16] Use avsm/setup-ocaml@v1 instead of 1.0.1 (#1190)
+
+Signed-off-by: Sora Morimoto <sora@morimoto.io>
+---
+ .github/workflows/main.yml | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/main.yml b/.github/workflows/main.yml
+index 8d963bdd..bae93692 100644
+--- a/.github/workflows/main.yml
++++ b/.github/workflows/main.yml
+@@ -10,7 +10,7 @@ on:
+   pull_request:
+     branches: [ master ]
+   schedule:
+-    - cron:  '0 12 */6 * *'
++    - cron: '0 12 */6 * *'
+ 
+ # A workflow run is made up of one or more jobs that can run sequentially or in parallel
+ jobs:
+@@ -51,7 +51,7 @@ jobs:
+           # An explicit key for restoring and saving the cache
+           key: ${{ matrix.os }}-${{ matrix.ocaml-version }}-${{ hashFiles('*.opam') }}-build
+       - name: Set up OCaml ${{ matrix.ocaml-version }}
+-        uses: avsm/setup-ocaml@v1.0.1
++        uses: avsm/setup-ocaml@v1
+         with:
+           # Version of the OCaml compiler to initialise
+           ocaml-version: ${{ matrix.ocaml-version }}
+-- 
+2.29.2
+

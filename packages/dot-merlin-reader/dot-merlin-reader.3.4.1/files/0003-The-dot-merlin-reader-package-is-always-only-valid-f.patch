@@ -1,0 +1,26 @@
+From 5b905e686dc9c47cd1c4d101e60909e64781cbd1 Mon Sep 17 00:00:00 2001
+From: Kate <kit.ty.kate@disroot.org>
+Date: Wed, 21 Oct 2020 09:00:27 +0100
+Subject: [PATCH 03/16] The dot-merlin-reader package is always only valid for
+ a limited set of OCaml compilers (#1186)
+
+---
+ dot-merlin-reader.opam | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dot-merlin-reader.opam b/dot-merlin-reader.opam
+index 8f115254..0437151b 100644
+--- a/dot-merlin-reader.opam
++++ b/dot-merlin-reader.opam
+@@ -10,7 +10,7 @@ build: [
+   ["dune" "build" "-p" name "-j" jobs]
+ ]
+ depends: [
+-  "ocaml" {>= "4.02.1"}
++  "ocaml" {>= "4.02.1" & < "4.12"}
+   "dune" {>= "1.8.0"}
+   "yojson" {>= "1.6.0"}
+   "ocamlfind" {>= "1.6.0"}
+-- 
+2.29.2
+

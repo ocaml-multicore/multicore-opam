@@ -1,0 +1,1254 @@
+From 5bd2d17914c42220e01b2fc9e614a92d289d0bc4 Mon Sep 17 00:00:00 2001
+From: "matt@pallissard.net" <matt@pallissard.net>
+Date: Tue, 17 Nov 2020 21:52:39 -0800
+Subject: [PATCH 12/16] multicore: initial typing import
+
+---
+ src/ocaml/typing/410+multicore/ctype.ml       |   2 +-
+ src/ocaml/typing/410+multicore/ctype.mli      |   2 +
+ src/ocaml/typing/410+multicore/oprint.ml      |   4 +
+ .../typing/410+multicore/outcometree.mli      |   1 +
+ src/ocaml/typing/410+multicore/predef.ml      |  27 ++-
+ src/ocaml/typing/410+multicore/predef.mli     |   4 +
+ src/ocaml/typing/410+multicore/printtyp.ml    |   5 +-
+ src/ocaml/typing/410+multicore/printtyped.ml  |  16 +-
+ src/ocaml/typing/410+multicore/rec_check.ml   |  16 +-
+ .../typing/410+multicore/tast_iterator.ml     |  12 +-
+ src/ocaml/typing/410+multicore/tast_mapper.ml |  16 +-
+ src/ocaml/typing/410+multicore/typeclass.ml   |   2 +-
+ src/ocaml/typing/410+multicore/typecore.ml    | 169 +++++++++++++++---
+ src/ocaml/typing/410+multicore/typecore.mli   |   2 +
+ src/ocaml/typing/410+multicore/typedecl.ml    | 137 ++++++++++++++
+ src/ocaml/typing/410+multicore/typedecl.mli   |   4 +
+ src/ocaml/typing/410+multicore/typedtree.ml   |   9 +-
+ src/ocaml/typing/410+multicore/typedtree.mli  |  18 +-
+ src/ocaml/typing/410+multicore/typemod.ml     |  23 +++
+ src/ocaml/typing/410+multicore/types.ml       |   2 +
+ src/ocaml/typing/410+multicore/types.mli      |   3 +-
+ src/ocaml/typing/410+multicore/untypeast.ml   |  49 ++++-
+ src/ocaml/typing/410+multicore/untypeast.mli  |   2 +
+ 23 files changed, 466 insertions(+), 59 deletions(-)
+
+diff --git a/src/ocaml/typing/410+multicore/ctype.ml b/src/ocaml/typing/410+multicore/ctype.ml
+index b38e3c81..f57fda16 100644
+--- a/src/ocaml/typing/410+multicore/ctype.ml
++++ b/src/ocaml/typing/410+multicore/ctype.ml
+@@ -159,7 +159,7 @@ module Unification_trace = struct
+         | Some _ as m -> m
+         | None -> explain rem in
+     explain (List.rev trace)
+-  
++
+   let map_types f = map (map_desc f)
+ end
+ module Trace = Unification_trace
+diff --git a/src/ocaml/typing/410+multicore/ctype.mli b/src/ocaml/typing/410+multicore/ctype.mli
+index be01b776..322d561d 100644
+--- a/src/ocaml/typing/410+multicore/ctype.mli
++++ b/src/ocaml/typing/410+multicore/ctype.mli
+@@ -234,6 +234,8 @@ val extract_concrete_typedecl:
+ 
+ val enforce_constraints: Env.t -> type_expr -> unit
+ 
++val get_new_abstract_name : string -> string
++
+ val unify: Env.t -> type_expr -> type_expr -> unit
+         (* Unify the two types given. Raise [Unify] if not possible. *)
+ val unify_gadt:
+diff --git a/src/ocaml/typing/410+multicore/oprint.ml b/src/ocaml/typing/410+multicore/oprint.ml
+index d757cac1..148d7c84 100644
+--- a/src/ocaml/typing/410+multicore/oprint.ml
++++ b/src/ocaml/typing/410+multicore/oprint.ml
+@@ -589,6 +589,10 @@ and print_out_sig_item ppf =
+   | Osig_typext (ext, Oext_exception) ->
+       fprintf ppf "@[<2>exception %a@]"
+         print_out_constr (ext.oext_name, ext.oext_args, ext.oext_ret_type)
++  | Osig_typext ({ oext_ret_type = Some (Otyp_constr(_, [ret]))} as ext,
++                 Oext_effect) ->
++      fprintf ppf "@[<2>effect %a@]"
++        print_out_constr (ext.oext_name, ext.oext_args, Some ret)
+   | Osig_typext (ext, _es) ->
+       print_out_extension_constructor ppf ext
+   | Osig_modtype (name, Omty_abstract) ->
+diff --git a/src/ocaml/typing/410+multicore/outcometree.mli b/src/ocaml/typing/410+multicore/outcometree.mli
+index bb53d235..af443a39 100644
+--- a/src/ocaml/typing/410+multicore/outcometree.mli
++++ b/src/ocaml/typing/410+multicore/outcometree.mli
+@@ -141,6 +141,7 @@ and out_ext_status =
+   | Oext_first
+   | Oext_next
+   | Oext_exception
++  | Oext_effect
+ 
+ type out_phrase =
+   | Ophr_eval of out_value * out_type
+diff --git a/src/ocaml/typing/410+multicore/predef.ml b/src/ocaml/typing/410+multicore/predef.ml
+index 24f51dec..63b12e6e 100644
+--- a/src/ocaml/typing/410+multicore/predef.ml
++++ b/src/ocaml/typing/410+multicore/predef.ml
+@@ -35,6 +35,8 @@ and ident_float = ident_create "float"
+ and ident_bool = ident_create "bool"
+ and ident_unit = ident_create "unit"
+ and ident_exn = ident_create "exn"
++and ident_eff = ident_create "eff"
++and ident_continuation = ident_create "continuation"
+ and ident_array = ident_create "array"
+ and ident_list = ident_create "list"
+ and ident_option = ident_create "option"
+@@ -53,6 +55,8 @@ and path_float = Pident ident_float
+ and path_bool = Pident ident_bool
+ and path_unit = Pident ident_unit
+ and path_exn = Pident ident_exn
++and path_eff = Pident ident_eff
++and path_continuation = Pident ident_continuation
+ and path_array = Pident ident_array
+ and path_list = Pident ident_list
+ and path_option = Pident ident_option
+@@ -71,6 +75,9 @@ and type_float = newgenty (Tconstr(path_float, [], ref Mnil))
+ and type_bool = newgenty (Tconstr(path_bool, [], ref Mnil))
+ and type_unit = newgenty (Tconstr(path_unit, [], ref Mnil))
+ and type_exn = newgenty (Tconstr(path_exn, [], ref Mnil))
++and type_eff t = newgenty (Tconstr(path_eff, [t], ref Mnil))
++and type_continuation t1 t2 =
++  newgenty (Tconstr(path_continuation, [t1; t2], ref Mnil))
+ and type_array t = newgenty (Tconstr(path_array, [t], ref Mnil))
+ and type_list t = newgenty (Tconstr(path_list, [t], ref Mnil))
+ and type_option t = newgenty (Tconstr(path_option, [t], ref Mnil))
+@@ -96,6 +103,7 @@ and ident_sys_blocked_io = ident_create "Sys_blocked_io"
+ and ident_assert_failure = ident_create "Assert_failure"
+ and ident_undefined_recursive_module =
+         ident_create "Undefined_recursive_module"
++and ident_unhandled = ident_create "Unhandled"
+ 
+ let all_predef_exns = [
+   ident_match_failure;
+@@ -161,6 +169,20 @@ let common_initial_env add_type add_extension empty_env =
+   and decl_exn =
+     {decl_abstr with
+      type_kind = Type_open}
++  and decl_eff =
++    let tvar = newgenvar() in
++    {decl_abstr with
++     type_params = [tvar];
++     type_arity = 1;
++     type_variance = [Variance.full];
++     type_kind = Type_open}
++  and decl_continuation =
++    let tvar1 = newgenvar() in
++    let tvar2 = newgenvar() in
++    {decl_abstr with
++     type_params = [tvar1; tvar2];
++     type_arity = 2;
++     type_variance = [Variance.contravariant; Variance.covariant]}
+   and decl_array =
+     let tvar = newgenvar() in
+     {decl_abstr with
+@@ -217,6 +239,7 @@ let common_initial_env add_type add_extension empty_env =
+                          [newgenty (Ttuple[type_string; type_int; type_int])] (
+   add_extension ident_undefined_recursive_module
+                          [newgenty (Ttuple[type_string; type_int; type_int])] (
++  add_extension ident_unhandled [] (
+   add_type ident_int64 decl_abstr (
+   add_type ident_int32 decl_abstr (
+   add_type ident_nativeint decl_abstr (
+@@ -225,6 +248,8 @@ let common_initial_env add_type add_extension empty_env =
+   add_type ident_list decl_list (
+   add_type ident_array decl_array (
+   add_type ident_exn decl_exn (
++  add_type ident_eff decl_eff (
++  add_type ident_continuation decl_continuation (
+   add_type ident_unit decl_unit (
+   add_type ident_bool decl_bool (
+   add_type ident_float decl_abstr (
+@@ -233,7 +258,7 @@ let common_initial_env add_type add_extension empty_env =
+   add_type ident_int decl_abstr_imm (
+   add_type ident_extension_constructor decl_abstr (
+   add_type ident_floatarray decl_abstr (
+-    empty_env))))))))))))))))))))))))))))
++    empty_env)))))))))))))))))))))))))))))))
+ 
+ let build_initial_env add_type add_exception empty_env =
+   let common = common_initial_env add_type add_exception empty_env in
+diff --git a/src/ocaml/typing/410+multicore/predef.mli b/src/ocaml/typing/410+multicore/predef.mli
+index 1edbb63e..784ef29f 100644
+--- a/src/ocaml/typing/410+multicore/predef.mli
++++ b/src/ocaml/typing/410+multicore/predef.mli
+@@ -27,6 +27,8 @@ val type_float: type_expr
+ val type_bool: type_expr
+ val type_unit: type_expr
+ val type_exn: type_expr
++val type_eff: type_expr -> type_expr
++val type_continuation: type_expr -> type_expr -> type_expr
+ val type_array: type_expr -> type_expr
+ val type_list: type_expr -> type_expr
+ val type_option: type_expr -> type_expr
+@@ -45,6 +47,8 @@ val path_float: Path.t
+ val path_bool: Path.t
+ val path_unit: Path.t
+ val path_exn: Path.t
++val path_eff: Path.t
++val path_continuation: Path.t
+ val path_array: Path.t
+ val path_list: Path.t
+ val path_option: Path.t
+diff --git a/src/ocaml/typing/410+multicore/printtyp.ml b/src/ocaml/typing/410+multicore/printtyp.ml
+index 565f8fbc..f9b7e664 100644
+--- a/src/ocaml/typing/410+multicore/printtyp.ml
++++ b/src/ocaml/typing/410+multicore/printtyp.ml
+@@ -389,8 +389,8 @@ let rec tree_of_path namespace = function
+       Oide_ident (Naming_context.pervasives_name namespace s)
+   | Pdot(Pident t, s)
+     when namespace=Type && not (Path.is_uident (Ident.name t)) ->
+-    (* [t.A]: inline record of the constructor [A] from type [t] *)
+-    Oide_dot (Oide_ident (ident_name Type t), s)
++      (* [t.A]: inline record of the constructor [A] from type [t] *)
++      Oide_dot (Oide_ident (ident_name Type t), s)
+   | Pdot(p, s) ->
+       Oide_dot (tree_of_path Module p, s)
+   | Papply(p1, p2) ->
+@@ -1249,6 +1249,7 @@ let tree_of_extension_constructor id ext es =
+         Text_first -> Oext_first
+       | Text_next -> Oext_next
+       | Text_exception -> Oext_exception
++      | Text_effect -> Oext_effect
+   in
+     Osig_typext (ext, es)
+ 
+diff --git a/src/ocaml/typing/410+multicore/printtyped.ml b/src/ocaml/typing/410+multicore/printtyped.ml
+index a637eaf8..ec417520 100644
+--- a/src/ocaml/typing/410+multicore/printtyped.ml
++++ b/src/ocaml/typing/410+multicore/printtyped.ml
+@@ -321,14 +321,16 @@ and expression i ppf x =
+       line i ppf "Texp_apply\n";
+       expression i ppf e;
+       list i label_x_expression ppf l;
+-  | Texp_match (e, l, _partial) ->
++  | Texp_match (e, l1, l2, _partial) ->
+       line i ppf "Texp_match\n";
+       expression i ppf e;
+-      list i case ppf l;
+-  | Texp_try (e, l) ->
++      list i case ppf l1;
++      list i case ppf l2;
++  | Texp_try (e, l1, l2) ->
+       line i ppf "Texp_try\n";
+       expression i ppf e;
+-      list i case ppf l;
++      list i case ppf l1;
++      list i case ppf l2;
+   | Texp_tuple (l) ->
+       line i ppf "Texp_tuple\n";
+       list i expression ppf l;
+@@ -705,6 +707,9 @@ and signature_item i ppf x =
+   | Tsig_typext e ->
+       line i ppf "Tsig_typext\n";
+       type_extension i ppf e;
++  | Tsig_effect ext ->
++      line i ppf "Psig_effect\n";
++      extension_constructor i ppf ext
+   | Tsig_exception ext ->
+       line i ppf "Tsig_exception\n";
+       type_exception i ppf ext
+@@ -817,6 +822,9 @@ and structure_item i ppf x =
+   | Tstr_typext te ->
+       line i ppf "Tstr_typext\n";
+       type_extension i ppf te
++  | Tstr_effect ext ->
++      line i ppf "Pstr_effect\n";
++      extension_constructor i ppf ext;
+   | Tstr_exception ext ->
+       line i ppf "Tstr_exception\n";
+       type_exception i ppf ext;
+diff --git a/src/ocaml/typing/410+multicore/rec_check.ml b/src/ocaml/typing/410+multicore/rec_check.ml
+index 1a9bb911..4b028b87 100644
+--- a/src/ocaml/typing/410+multicore/rec_check.ml
++++ b/src/ocaml/typing/410+multicore/rec_check.ml
+@@ -528,8 +528,8 @@ let rec expression : Typedtree.expression -> term_judg =
+       value_bindings rec_flag bindings >> expression body
+     | Texp_letmodule (x, _, _, mexp, e) ->
+       module_binding (x, mexp) >> expression e
+-    | Texp_match (e, cases, _) ->
+-      (*
++    | Texp_match (e, cases, eff_cases, _) ->
++      (* TODO: update comment below for eff_cases
+          (Gi; mi |- pi -> ei : m)^i
+          G |- e : sum(mi)^i
+          ----------------------------------------------
+@@ -539,7 +539,10 @@ let rec expression : Typedtree.expression -> term_judg =
+         let pat_envs, pat_modes =
+           List.split (List.map (fun c -> case c mode) cases) in
+         let env_e = expression e (List.fold_left Mode.join Ignore pat_modes) in
+-        Env.join_list (env_e :: pat_envs))
++        let eff_envs, eff_modes =
++          List.split (List.map (fun c -> case c mode) eff_cases) in
++        let eff_e = expression e (List.fold_left Mode.join Ignore eff_modes) in
++        Env.join_list ((Env.join_list (env_e :: pat_envs)) :: (eff_e :: eff_envs)))
+     | Texp_for (_, _, low, high, _, body) ->
+       (*
+         G1 |- low: m[Dereference]
+@@ -751,7 +754,7 @@ let rec expression : Typedtree.expression -> term_judg =
+       modexp mexp
+     | Texp_object (clsstrct, _) ->
+       class_structure clsstrct
+-    | Texp_try (e, cases) ->
++    | Texp_try (e, cases, eff_cases) ->
+       (*
+         G |- e: m      (Gi; _ |- pi -> ei : m)^i
+         --------------------------------------------
+@@ -765,6 +768,7 @@ let rec expression : Typedtree.expression -> term_judg =
+       join [
+         expression e;
+         list case_env cases;
++        list case_env eff_cases;
+       ]
+     | Texp_override (pth, fields) ->
+       (*
+@@ -967,6 +971,10 @@ and structure_item : Typedtree.structure_item -> bind_judg =
+       Env.join
+         (list extension_constructor exts m)
+         (Env.remove_list ext_ids env)
++    | Tstr_effect ext ->
++      Env.join
++        (extension_constructor ext m)
++        (Env.remove ext.ext_id env)
+     | Tstr_exception {tyexn_constructor = ext; _} ->
+       Env.join
+         (extension_constructor ext m)
+diff --git a/src/ocaml/typing/410+multicore/tast_iterator.ml b/src/ocaml/typing/410+multicore/tast_iterator.ml
+index a6a2e440..a05d0b02 100644
+--- a/src/ocaml/typing/410+multicore/tast_iterator.ml
++++ b/src/ocaml/typing/410+multicore/tast_iterator.ml
+@@ -93,6 +93,7 @@ let structure_item sub {str_desc; str_env; _} =
+   | Tstr_primitive v -> sub.value_description sub v
+   | Tstr_type (rec_flag, list) -> sub.type_declarations sub (rec_flag, list)
+   | Tstr_typext te -> sub.type_extension sub te
++  | Tstr_effect ext -> sub.extension_constructor sub ext
+   | Tstr_exception ext -> sub.type_exception sub ext
+   | Tstr_module mb -> sub.module_binding sub mb
+   | Tstr_recmodule list -> List.iter (sub.module_binding sub) list
+@@ -195,12 +196,14 @@ let expr sub {exp_extra; exp_desc; exp_env; _} =
+   | Texp_apply (exp, list) ->
+       sub.expr sub exp;
+       List.iter (fun (_, o) -> Option.iter (sub.expr sub) o) list
+-  | Texp_match (exp, cases, _) ->
++  | Texp_match (exp, cases, effs, _) ->
+       sub.expr sub exp;
+-      sub.cases sub cases
+-  | Texp_try (exp, cases) ->
++      sub.cases sub cases;
++      sub.cases sub effs
++  | Texp_try (exp, cases, effs) ->
+       sub.expr sub exp;
+-      sub.cases sub cases
++      sub.cases sub cases;
++      sub.cases sub effs
+   | Texp_tuple list -> List.iter (sub.expr sub) list
+   | Texp_construct (_, _, args) -> List.iter (sub.expr sub) args
+   | Texp_variant (_, expo) -> Option.iter (sub.expr sub) expo
+@@ -274,6 +277,7 @@ let signature_item sub {sig_desc; sig_env; _} =
+   | Tsig_type (rf, tdl)  -> sub.type_declarations sub (rf, tdl)
+   | Tsig_typesubst list -> sub.type_declarations sub (Nonrecursive, list)
+   | Tsig_typext te -> sub.type_extension sub te
++  | Tsig_effect ext -> sub.extension_constructor sub ext
+   | Tsig_exception ext -> sub.type_exception sub ext
+   | Tsig_module x -> sub.module_declaration sub x
+   | Tsig_modsubst x -> sub.module_substitution sub x
+diff --git a/src/ocaml/typing/410+multicore/tast_mapper.ml b/src/ocaml/typing/410+multicore/tast_mapper.ml
+index c288345e..220f4808 100644
+--- a/src/ocaml/typing/410+multicore/tast_mapper.ml
++++ b/src/ocaml/typing/410+multicore/tast_mapper.ml
+@@ -118,6 +118,7 @@ let structure_item sub {str_desc; str_loc; str_env} =
+         let (rec_flag, list) = sub.type_declarations sub (rec_flag, list) in
+         Tstr_type (rec_flag, list)
+     | Tstr_typext te -> Tstr_typext (sub.type_extension sub te)
++    | Tstr_effect ext -> Tstr_effect (sub.extension_constructor sub ext)
+     | Tstr_exception ext -> Tstr_exception (sub.type_exception sub ext)
+     | Tstr_module mb -> Tstr_module (sub.module_binding sub mb)
+     | Tstr_recmodule list ->
+@@ -251,16 +252,18 @@ let expr sub x =
+           sub.expr sub exp,
+           List.map (tuple2 id (Option.map (sub.expr sub))) list
+         )
+-    | Texp_match (exp, cases, p) ->
++    | Texp_match (exp, cases, eff_cases, p) ->
+         Texp_match (
+           sub.expr sub exp,
+           sub.cases sub cases,
++          sub.cases sub eff_cases,
+           p
+         )
+-    | Texp_try (exp, cases) ->
++    | Texp_try (exp, exn_cases, eff_cases) ->
+         Texp_try (
+           sub.expr sub exp,
+-          sub.cases sub cases
++          sub.cases sub exn_cases,
++          sub.cases sub eff_cases
+         )
+     | Texp_tuple list ->
+         Texp_tuple (List.map (sub.expr sub) list)
+@@ -270,7 +273,7 @@ let expr sub x =
+         Texp_variant (l, Option.map (sub.expr sub) expo)
+     | Texp_record { fields; representation; extended_expression } ->
+         let fields = Array.map (function
+-            | label, Kept t -> label, Kept t
++            | label, Kept (t, mut) -> label, Kept (t, mut)
+             | label, Overridden (lid, exp) ->
+                 label, Overridden (lid, sub.expr sub exp))
+             fields
+@@ -401,6 +404,8 @@ let signature_item sub x =
+         Tsig_typesubst list
+     | Tsig_typext te ->
+         Tsig_typext (sub.type_extension sub te)
++    | Tsig_effect ext ->
++        Tsig_effect (sub.extension_constructor sub ext)
+     | Tsig_exception ext ->
+         Tsig_exception (sub.type_exception sub ext)
+     | Tsig_module x ->
+@@ -681,11 +686,12 @@ let value_bindings sub (rec_flag, list) =
+ let cases sub l =
+   List.map (sub.case sub) l
+ 
+-let case sub {c_lhs; c_guard; c_rhs} =
++let case sub {c_lhs; c_cont; c_guard; c_rhs} =
+   {
+     c_lhs = sub.pat sub c_lhs;
+     c_guard = Option.map (sub.expr sub) c_guard;
+     c_rhs = sub.expr sub c_rhs;
++    c_cont
+   }
+ 
+ let value_binding sub x =
+diff --git a/src/ocaml/typing/410+multicore/typeclass.ml b/src/ocaml/typing/410+multicore/typeclass.ml
+index 5b7ee769..54dbcd2d 100644
+--- a/src/ocaml/typing/410+multicore/typeclass.ml
++++ b/src/ocaml/typing/410+multicore/typeclass.ml
+@@ -1047,7 +1047,7 @@ and class_expr_aux cl_num val_env met_env scl =
+       let partial =
+         let dummy = type_exp val_env (Ast_helper.Exp.unreachable ()) in
+         Typecore.check_partial val_env pat.pat_type pat.pat_loc
+-          [{c_lhs = pat; c_guard = None; c_rhs = dummy}]
++          [{c_lhs = pat; c_cont = None; c_guard = None; c_rhs = dummy}]
+       in
+       Ctype.raise_nongen_level ();
+       let cl = class_expr cl_num val_env' met_env scl' in
+diff --git a/src/ocaml/typing/410+multicore/typecore.ml b/src/ocaml/typing/410+multicore/typecore.ml
+index 1fd5297a..42edca77 100644
+--- a/src/ocaml/typing/410+multicore/typecore.ml
++++ b/src/ocaml/typing/410+multicore/typecore.ml
+@@ -108,6 +108,8 @@ type error =
+   | No_value_clauses
+   | Exception_pattern_disallowed
+   | Mixed_value_and_exception_patterns_under_guard
++  | Effect_pattern_below_toplevel
++  | Invalid_continuation_pattern
+   | Inlined_record_escape
+   | Inlined_record_expected
+   | Unrefuted_pattern of pattern
+@@ -262,7 +264,7 @@ type recarg =
+ let mk_expected ?explanation ty = { ty; explanation; }
+ 
+ let case lhs rhs =
+-  {c_lhs = lhs; c_guard = None; c_rhs = rhs}
++  {c_lhs = lhs; c_cont = None; c_guard = None; c_rhs = rhs}
+ 
+ (* Typing of constants *)
+ 
+@@ -1013,6 +1015,22 @@ let unify_head_only ~refine loc env ty constr =
+ 
+ (* Typing of patterns *)
+ 
++(* Simplified patterns for effect continuations *)
++let type_continuation_pat env expected_ty sp =
++  let loc = sp.ppat_loc in
++  match sp.ppat_desc with
++  | Ppat_any -> None
++  | Ppat_var name ->
++      let id = Ident.create_local name.txt in
++      let desc =
++        { val_type = expected_ty; val_kind = Val_reg;
++          Types.val_loc = loc; val_attributes = []; }
++      in
++        Some (id, desc)
++  | Ppat_extension ext ->
++      raise (Error_forward (Builtin_attributes.error_of_extension ext))
++  | _ -> raise (Error (loc, env, Invalid_continuation_pattern))
++
+ (* "half typed" cases are produced in [type_cases] when we've just typechecked
+    the pattern but haven't type-checked the body yet.
+    At this point we might have added some type equalities to the environment,
+@@ -1051,6 +1069,7 @@ let rec has_literal_pattern p = match p.ppat_desc with
+      List.exists has_literal_pattern ps
+   | Ppat_record (ps, _) ->
+      List.exists (fun (_,p) -> has_literal_pattern p) ps
++  | Ppat_effect (p, q)
+   | Ppat_or (p, q) ->
+      has_literal_pattern p || has_literal_pattern q
+ 
+@@ -1723,6 +1742,8 @@ and type_pat_aux ~exception_allowed ~no_existentials ~mode
+           pat_attributes = sp.ppat_attributes;
+         })
+       end
++  | Ppat_effect _ ->
++      raise (Error (loc, !env, Effect_pattern_below_toplevel))
+   | Ppat_extension ext ->
+       raise (Error_forward (Builtin_attributes.error_of_extension ext))
+ 
+@@ -1902,9 +1923,9 @@ let rec final_subexpression exp =
+   match exp.exp_desc with
+     Texp_let (_, _, e)
+   | Texp_sequence (_, e)
+-  | Texp_try (e, _)
++  | Texp_try (e, _, _)
+   | Texp_ifthenelse (_, e, _)
+-  | Texp_match (_, {c_rhs=e} :: _, _)
++  | Texp_match (_, {c_rhs=e} :: _, _, _)
+   | Texp_letmodule (_, _, _, _, e)
+   | Texp_letexception (_, e)
+   | Texp_open (_, e)
+@@ -1925,7 +1946,7 @@ let rec is_nonexpansive exp =
+       is_nonexpansive body
+   | Texp_apply(e, (_,None)::el) ->
+       is_nonexpansive e && List.for_all is_nonexpansive_opt (List.map snd el)
+-  | Texp_match(e, cases, _) ->
++  | Texp_match(e, cases, _, _) ->
+      (* Not sure this is necessary, if [e] is nonexpansive then we shouldn't
+          care if there are exception patterns. But the previous version enforced
+          that there be none, so... *)
+@@ -2037,6 +2058,10 @@ and is_nonexpansive_mod mexp =
+               false (* true would be unsound *)
+           | Tstr_exception {tyexn_constructor = {ext_kind = Text_rebind _}} ->
+               true
++          | Tstr_effect {ext_kind = Text_decl _} ->
++              false (* true would be unsound *)
++          | Tstr_effect {ext_kind = Text_rebind _} ->
++              true
+           | Tstr_typext te ->
+               List.for_all
+                 (function {ext_kind = Text_decl _} -> false
+@@ -2207,10 +2232,13 @@ let check_partial_application statement exp =
+             | Texp_extension_constructor _ | Texp_ifthenelse (_, _, None)
+             | Texp_function _ ->
+                 check_statement ()
+-            | Texp_match (_, cases, _) ->
+-                List.iter (fun {c_rhs; _} -> check c_rhs) cases
+-            | Texp_try (e, cases) ->
+-                check e; List.iter (fun {c_rhs; _} -> check c_rhs) cases
++            | Texp_match (_, cases, eff_cases, _) ->
++                List.iter (fun {c_rhs; _} -> check c_rhs) cases;
++                List.iter (fun {c_rhs; _} -> check c_rhs) eff_cases
++            | Texp_try (e, cases, eff_cases) ->
++                check e;
++                List.iter (fun {c_rhs; _} -> check c_rhs) cases;
++                List.iter (fun {c_rhs; _} -> check c_rhs) eff_cases
+             | Texp_ifthenelse (_, e1, Some e2) ->
+                 check e1; check e2
+             | Texp_let (_, _, e) | Texp_sequence (_, e) | Texp_open (_, e)
+@@ -2296,7 +2324,7 @@ let shallow_iter_ppat f p =
+   | Ppat_extension _
+   | Ppat_type _ | Ppat_unpack _ -> ()
+   | Ppat_array pats -> List.iter f pats
+-  | Ppat_or (p1,p2) -> f p1; f p2
++  | Ppat_or (p1,p2) | Ppat_effect(p1, p2) -> f p1; f p2
+   | Ppat_variant (_, arg) | Ppat_construct (_, arg) -> Option.iter f arg
+   | Ppat_tuple lst ->  List.iter f lst
+   | Ppat_exception p | Ppat_alias (p,_)
+@@ -2637,22 +2665,54 @@ and type_expect_
+       end_def ();
+       if maybe_expansive arg then lower_contravariant env arg.exp_type;
+       generalize arg.exp_type;
+-      let cases, partial =
+-        type_cases ~exception_allowed:true env arg.exp_type ty_expected true loc
+-          caselist
++      let rec split_cases valc effc conts = function
++        | [] -> List.rev valc, List.rev effc, List.rev conts
++        | {pc_lhs = {ppat_desc=Ppat_effect(p1, p2)}} as c :: rest ->
++            split_cases valc
++              (({c with pc_lhs = p1}) :: effc) (p2 :: conts) rest
++        | c :: rest ->
++            split_cases (c :: valc) effc conts rest
++      in
++      let val_caselist, eff_caselist, eff_conts =
++        split_cases [] [] [] caselist
++      in
++      if val_caselist = [] && eff_caselist <> [] then
++        raise (Error (loc, env, No_value_clauses));
++      let val_cases, partial =
++        type_cases ~exception_allowed:true env arg.exp_type ty_expected true loc val_caselist in
++      let eff_cases =
++        match eff_caselist with
++        | [] -> []
++        | eff_caselist ->
++            type_effect_cases ~exception_allowed:false env ty_expected loc eff_caselist eff_conts
+       in
+       re {
+-        exp_desc = Texp_match(arg, cases, partial);
++        exp_desc = Texp_match(arg, val_cases, eff_cases, partial);
+         exp_loc = loc; exp_extra = [];
+         exp_type = instance ty_expected;
+         exp_attributes = sexp.pexp_attributes;
+         exp_env = env }
+   | Pexp_try(sbody, caselist) ->
+       let body = type_expect env sbody ty_expected_explained in
+-      let cases, _ =
+-        type_cases env Predef.type_exn ty_expected false loc caselist in
++      let rec split_cases exnc effc conts = function
++        | [] -> List.rev exnc, List.rev effc, List.rev conts
++        | {pc_lhs = {ppat_desc=Ppat_effect(p1, p2)}} as c :: rest ->
++            split_cases exnc
++              (({c with pc_lhs = p1}) :: effc) (p2 :: conts) rest
++        | c :: rest ->
++            split_cases (c :: exnc) effc conts rest
++      in
++      let exn_caselist, eff_caselist, eff_conts = split_cases [] [] [] caselist in
++      let exn_cases, _ =
++        type_cases env Predef.type_exn ty_expected false loc exn_caselist in
++      let eff_cases =
++        match eff_caselist with
++        | [] -> []
++        | eff_caselist ->
++            type_effect_cases ~exception_allowed:false env ty_expected loc eff_caselist eff_conts
++      in
+       re {
+-        exp_desc = Texp_try(body, cases);
++        exp_desc = Texp_try(body, exn_cases, eff_cases);
+         exp_loc = loc; exp_extra = [];
+         exp_type = body.exp_type;
+         exp_attributes = sexp.pexp_attributes;
+@@ -2820,7 +2880,7 @@ and type_expect_
+                   unify_exp_types loc env ty_arg1 ty_arg2;
+                   with_explanation (fun () ->
+                     unify_exp_types loc env (instance ty_expected) ty_res2);
+-                  Kept ty_arg1
++                  Kept (ty_arg1, lbl.lbl_mut)
+                 end
+             in
+             let label_definitions = Array.map unify_kept lbl.lbl_all in
+@@ -4431,8 +4491,8 @@ and type_statement ?explanation env sexp =
+   end
+ 
+ (* Typing of match cases *)
+-and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
+-      loc caselist =
++and type_cases ?exception_allowed ?in_function env ty_arg ty_res
++      ?conts partial_flag loc caselist =
+   let has_errors = Msupport.monitor_errors () in
+   (* ty_arg is _fully_ generalized *)
+   let patterns = List.map (fun {pc_lhs=p} -> p) caselist in
+@@ -4540,11 +4600,17 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
+   ) half_typed_cases;
+   (* type bodies *)
+   let in_function = if List.length caselist = 1 then in_function else None in
++  let half_typed_cases_cont_list =
++    match conts with
++    | None -> List.map (fun x -> (x, None)) half_typed_cases
++    | Some conts ->
++        List.map2 (fun x cont -> (x, cont)) half_typed_cases conts
++  in
+   let cases =
+     List.map
+-      (fun { typed_pat = pat; branch_env = ext_env; pat_vars = pvs; unpacks;
++      (fun ({ typed_pat = pat; branch_env = ext_env; pat_vars = pvs; unpacks;
+              untyped_case = {pc_lhs = _; pc_guard; pc_rhs};
+-             contains_gadt; _ }  ->
++             contains_gadt; _ }, cont)  ->
+         let ext_env =
+           if contains_gadt then
+             do_copy_types ext_env
+@@ -4556,6 +4622,16 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
+             ~check:(fun s -> Warnings.Unused_var_strict s)
+             ~check_as:(fun s -> Warnings.Unused_var s)
+         in
++        let cont, ext_env' =
++          match cont with
++          | Some (id, desc) ->
++              let ext_env =
++                Env.add_value ~check:(fun s -> Warnings.Unused_var_strict s)
++                  id desc ext_env
++              in
++                Some id, ext_env
++          | None -> None, ext_env
++        in
+         let sexp = wrap_unpacks pc_rhs unpacks in
+         let ty_res' =
+           if !Clflags.principal then begin
+@@ -4577,19 +4653,26 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
+           match pc_guard with
+           | None -> None
+           | Some scond ->
+-              Some
++             (* It is crucial that the continuation is not used in the
++                `when' expression as the extent of the continuation is
++                yet to be determined. We make the continuation
++                inaccessible by typing the `when' expression using the
++                environment `ext_env' which does not bind the
++                continuation variable. *)
++             Some
+                 (type_expect ext_env (wrap_unpacks scond unpacks)
+                    (mk_expected ~explanation:When_guard Predef.type_bool))
+         in
+         let exp =
+-          type_expect ?in_function ext_env sexp (mk_expected ty_res') in
++          type_expect ?in_function ext_env' sexp (mk_expected ty_res') in
+         {
+          c_lhs = pat;
++         c_cont = cont;
+          c_guard = guard;
+          c_rhs = {exp with exp_type = instance ty_res'}
+         }
+       )
+-      half_typed_cases
++      half_typed_cases_cont_list
+   in
+   if !Clflags.principal || does_contain_gadt then begin
+     let ty_res' = instance ty_res in
+@@ -4636,6 +4719,38 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
+   end;
+   cases, partial
+ 
++and type_effect_cases ~exception_allowed env ty_res loc caselist conts =
++  let _ = newvar () in
++  (* remember original level *)
++  begin_def ();
++  (* Create a fake abstract type declaration for effect type. *)
++  let decl = {
++    type_params = [];
++    type_arity = 0;
++    type_kind = Type_abstract;
++    type_private = Public;
++    type_manifest = None;
++    type_variance = [];
++    type_is_newtype = true;
++    type_expansion_scope = Btype.lowest_level;
++    type_loc = loc;
++    type_attributes = [];
++    type_immediate = Unknown;
++    type_unboxed = unboxed_false_default_false;
++  }
++  in
++  let name = Ctype.get_new_abstract_name "effect" in
++  let scope = create_scope () in
++  let id = Ident.create_scoped ~scope name in
++  let new_env = Env.add_type ~check:false id decl env in
++  let ty_eff = newgenty (Tconstr (Path.Pident id,[],ref Mnil)) in
++  let ty_arg = Predef.type_eff ty_eff in
++  let ty_cont = Predef.type_continuation ty_eff ty_res in
++  let conts = List.map (type_continuation_pat env ty_cont) conts in
++  let cases, _ = type_cases ~exception_allowed new_env ty_arg ty_res ~conts false loc caselist in
++  end_def ();
++  cases
++
+ (* Typing of let bindings *)
+ 
+ and type_let
+@@ -5344,6 +5459,12 @@ let report_error ~loc env = function
+       Location.errorf ~loc
+         "@[Mixing value and exception patterns under when-guards is not \
+          supported.@]"
++  | Effect_pattern_below_toplevel ->
++      Location.errorf ~loc
++        "@[Effect patterns must be at the top level of a match case.@]"
++  | Invalid_continuation_pattern ->
++      Location.errorf ~loc
++        "@[Invalid continuation pattern: only variables and _ are allowed .@]"
+   | Inlined_record_escape ->
+       Location.errorf ~loc
+         "@[This form is not allowed as the type of the inlined record could \
+diff --git a/src/ocaml/typing/410+multicore/typecore.mli b/src/ocaml/typing/410+multicore/typecore.mli
+index e073f072..39a0699c 100644
+--- a/src/ocaml/typing/410+multicore/typecore.mli
++++ b/src/ocaml/typing/410+multicore/typecore.mli
+@@ -165,6 +165,8 @@ type error =
+   | No_value_clauses
+   | Exception_pattern_disallowed
+   | Mixed_value_and_exception_patterns_under_guard
++  | Effect_pattern_below_toplevel
++  | Invalid_continuation_pattern
+   | Inlined_record_escape
+   | Inlined_record_expected
+   | Unrefuted_pattern of Typedtree.pattern
+diff --git a/src/ocaml/typing/410+multicore/typedecl.ml b/src/ocaml/typing/410+multicore/typedecl.ml
+index d9c8c2ec..739ecf34 100644
+--- a/src/ocaml/typing/410+multicore/typedecl.ml
++++ b/src/ocaml/typing/410+multicore/typedecl.ml
+@@ -318,6 +318,25 @@ and check_unboxed_abstract_row_field loc univ (_, field) =
+   | Rabsent
+   | Rpresent None -> ()
+ 
++let make_effect_constructor env type_param sargs sret =
++  let type_path = Predef.path_eff in
++  let type_lid = Location.mknoloc (Longident.Lident "eff") in
++  let z = narrow () in
++  reset_type_variables ();
++  let targs = List.map (transl_simple_type env false) sargs in
++  let args = List.map (fun cty -> cty.ctyp_type) targs in
++  let tret = transl_simple_type env false sret in
++  Ctype.unify_var env (Ctype.instance type_param) tret.ctyp_type;
++  let ret_type = Ctype.newconstr type_path [tret.ctyp_type] in
++  let tret_type =
++    { ctyp_desc = Ttyp_constr (type_path, type_lid, targs);
++      ctyp_type = ret_type; ctyp_env = env;
++      ctyp_loc = {sret.ptyp_loc with Location.loc_ghost = true};
++      ctyp_attributes = [] }
++  in
++  widen z;
++  targs, Some tret_type, args, Some ret_type
++
+ (* Check that the argument to a GADT constructor is compatible with unboxing
+    the type, given the universal parameters of the type. *)
+ let rec check_unboxed_gadt_arg loc univ env ty =
+@@ -1018,6 +1037,70 @@ let transl_type_decl env rec_flag sdecl_list =
+   (final_decls, final_env)
+ 
+ (* Translating type extensions *)
++let transl_extension_rebind env type_path type_params typext_params priv lid =
++  let usage = if priv = Public then Env.Positive else Env.Privatize in
++  let cdescr = Env.lookup_constructor ~loc:lid.loc usage lid.txt env in
++  let (args, cstr_res) = Ctype.instance_constructor cdescr in
++  let res, ret_type =
++    if cdescr.cstr_generalized then
++      let params = Ctype.instance_list type_params in
++      let res = Ctype.newconstr type_path params in
++      let ret_type = Some (Ctype.newconstr type_path params) in
++        res, ret_type
++    else (Ctype.newconstr type_path typext_params), None
++  in
++  begin
++    try
++      Ctype.unify env cstr_res res
++    with Ctype.Unify trace ->
++      raise (Error(lid.loc,
++               Rebind_wrong_type(lid.txt, env, trace)))
++  end;
++  (* Remove "_" names from parameters used in the constructor *)
++  if not cdescr.cstr_generalized then begin
++    let vars =
++      Ctype.free_variables (Btype.newgenty (Ttuple args))
++    in
++      List.iter
++        (function {desc = Tvar (Some "_")} as ty ->
++                    if List.memq ty vars then ty.desc <- Tvar None
++                  | _ -> ())
++        typext_params
++  end;
++  (* Ensure that constructor's type matches the type being extended *)
++  let cstr_type_path, cstr_type_params =
++    match cdescr.cstr_res.desc with
++      Tconstr (p, _, _) ->
++        let decl = Env.find_type p env in
++          p, decl.type_params
++    | _ -> assert false
++  in
++  let cstr_types =
++    (Btype.newgenty
++       (Tconstr(cstr_type_path, cstr_type_params, ref Mnil)))
++    :: cstr_type_params
++  in
++  let ext_types =
++    (Btype.newgenty
++       (Tconstr(type_path, type_params, ref Mnil)))
++    :: type_params
++  in
++  if not (Ctype.equal env true cstr_types ext_types) then
++    raise (Error(lid.loc,
++                 Rebind_mismatch(lid.txt, cstr_type_path, type_path)));
++  (* Disallow rebinding private constructors to non-private *)
++  begin
++    match cdescr.cstr_private, priv with
++      Private, Public ->
++        raise (Error(lid.loc, Rebind_private lid.txt))
++    | _ -> ()
++  end;
++  let path =
++    match cdescr.cstr_tag with
++      Cstr_extension(path, _) -> path
++    | _ -> assert false
++  in
++    args, ret_type, Text_rebind(path, lid)
+ 
+ let transl_extension_constructor env type_path type_params
+                                  typext_params priv sext =
+@@ -1245,6 +1328,7 @@ let transl_type_extension extend env loc styext =
+   Builtin_attributes.warning_scope styext.ptyext_attributes
+     (fun () -> transl_type_extension extend env loc styext)
+ 
++(* Translate an exception declaration *)
+ let transl_exception env sext =
+   reset_type_variables();
+   Ctype.begin_def();
+@@ -1278,6 +1362,59 @@ let transl_type_exception env t =
+    tyexn_attributes = t.ptyexn_attributes}, newenv
+ 
+ 
++(* Translate an effect declaration *)
++let transl_effect env seff =
++  reset_type_variables();
++  Ctype.begin_def();
++  let type_decl = Env.find_type Predef.path_eff env in
++  let type_param =
++    match type_decl.type_params with
++    | [type_param] -> type_param
++    | _ -> assert false
++  in
++  let typext_param = Ctype.new_global_var () in
++  let id = Ident.create_local seff.peff_name.txt in
++  let args, ret_type, kind =
++    match seff.peff_kind with
++    | Peff_decl(sargs, sret) ->
++        let targs, tret_type, args, ret_type =
++          make_effect_constructor env type_param sargs sret
++        in
++          args, ret_type, Text_decl(Cstr_tuple targs, tret_type)
++    | Peff_rebind lid ->
++        transl_extension_rebind env Predef.path_eff
++          type_decl.type_params [typext_param] Asttypes.Public lid
++  in
++  let ext =
++    { ext_type_path = Predef.path_eff;
++      ext_type_params = [typext_param];
++      ext_args = Cstr_tuple args;
++      ext_ret_type = ret_type;
++      ext_private = Asttypes.Public;
++      Types.ext_loc = seff.peff_loc;
++      Types.ext_attributes = seff.peff_attributes; }
++  in
++  let text =
++    { ext_id = id;
++      ext_name = seff.peff_name;
++      ext_type = ext;
++      ext_kind = kind;
++      Typedtree.ext_loc = seff.peff_loc;
++      Typedtree.ext_attributes = seff.peff_attributes; }
++  in
++  Ctype.end_def();
++  (* Generalize types *)
++  Btype.iter_type_expr_cstr_args Ctype.generalize ext.ext_args;
++  Option.iter Ctype.generalize ext.ext_ret_type;
++  (* Check that all type variable are closed *)
++  begin match Ctype.closed_extension_constructor ext with
++    Some ty ->
++      raise (Error(ext.ext_loc, Unbound_type_var_ext(ty, ext)))
++  | None -> ()
++  end;
++  let newenv = Env.add_extension ~check:true text.ext_id ext env in
++    text, newenv
++
+ type native_repr_attribute =
+   | Native_repr_attr_absent
+   | Native_repr_attr_present of native_repr_kind
+diff --git a/src/ocaml/typing/410+multicore/typedecl.mli b/src/ocaml/typing/410+multicore/typedecl.mli
+index 93b83471..b043c914 100644
+--- a/src/ocaml/typing/410+multicore/typedecl.mli
++++ b/src/ocaml/typing/410+multicore/typedecl.mli
+@@ -30,6 +30,10 @@ val transl_type_exception:
+     Env.t ->
+     Parsetree.type_exception -> Typedtree.type_exception * Env.t
+ 
++val transl_effect:
++    Env.t ->
++    Parsetree.effect_constructor -> Typedtree.extension_constructor * Env.t
++
+ val transl_type_extension:
+     bool -> Env.t -> Location.t -> Parsetree.type_extension ->
+     Typedtree.type_extension * Env.t
+diff --git a/src/ocaml/typing/410+multicore/typedtree.ml b/src/ocaml/typing/410+multicore/typedtree.ml
+index 2d6053a4..109c601b 100644
+--- a/src/ocaml/typing/410+multicore/typedtree.ml
++++ b/src/ocaml/typing/410+multicore/typedtree.ml
+@@ -79,8 +79,8 @@ and expression_desc =
+   | Texp_function of { arg_label : arg_label; param : Ident.t;
+       cases : case list; partial : partial; }
+   | Texp_apply of expression * (arg_label * expression option) list
+-  | Texp_match of expression * case list * partial
+-  | Texp_try of expression * case list
++  | Texp_match of expression * case list * case list * partial
++  | Texp_try of expression * case list * case list
+   | Texp_tuple of expression list
+   | Texp_construct of
+       Longident.t loc * constructor_description * expression list
+@@ -131,12 +131,13 @@ and meth =
+ and case =
+     {
+      c_lhs: pattern;
++     c_cont: Ident.t option;
+      c_guard: expression option;
+      c_rhs: expression;
+     }
+ 
+ and record_label_definition =
+-  | Kept of Types.type_expr
++  | Kept of Types.type_expr * mutable_flag
+   | Overridden of Longident.t loc * expression
+ 
+ and binding_op =
+@@ -249,6 +250,7 @@ and structure_item_desc =
+   | Tstr_primitive of value_description
+   | Tstr_type of rec_flag * type_declaration list
+   | Tstr_typext of type_extension
++  | Tstr_effect of extension_constructor
+   | Tstr_exception of type_exception
+   | Tstr_module of module_binding
+   | Tstr_recmodule of module_binding list
+@@ -326,6 +328,7 @@ and signature_item_desc =
+   | Tsig_type of rec_flag * type_declaration list
+   | Tsig_typesubst of type_declaration list
+   | Tsig_typext of type_extension
++  | Tsig_effect of extension_constructor
+   | Tsig_exception of type_exception
+   | Tsig_module of module_declaration
+   | Tsig_modsubst of module_substitution
+diff --git a/src/ocaml/typing/410+multicore/typedtree.mli b/src/ocaml/typing/410+multicore/typedtree.mli
+index 42da1ea5..5e4f9419 100644
+--- a/src/ocaml/typing/410+multicore/typedtree.mli
++++ b/src/ocaml/typing/410+multicore/typedtree.mli
+@@ -169,17 +169,22 @@ and expression_desc =
+                          (Labelled "y", Some (Texp_constant Const_int 3))
+                         ])
+          *)
+-  | Texp_match of expression * case list * partial
++  | Texp_match of expression * case list * case list * partial
+         (** match E0 with
+             | P1 -> E1
+             | P2 | exception P3 -> E2
+             | exception P4 -> E3
+ 
+             [Texp_match (E0, [(P1, E1); (P2 | exception P3, E2);
+-                              (exception P4, E3)], _)]
++                              (exception P4, E3)], [(P4, E4)],  _)]
+          *)
+-  | Texp_try of expression * case list
+-        (** try E with P1 -> E1 | ... | PN -> EN *)
++  | Texp_try of expression * case list * case list
++        (** try E with
++            | P1 -> E1
++            | effect P2 k -> E2
++
++            [Texp_try (E, [(P1, E1)], [(P2, E2)])]
++          *)
+   | Texp_tuple of expression list
+         (** (E1, ..., EN) *)
+   | Texp_construct of
+@@ -247,12 +252,13 @@ and meth =
+ and case =
+     {
+      c_lhs: pattern;
++     c_cont: Ident.t option;
+      c_guard: expression option;
+      c_rhs: expression;
+     }
+ 
+ and record_label_definition =
+-  | Kept of Types.type_expr
++  | Kept of Types.type_expr * mutable_flag
+   | Overridden of Longident.t loc * expression
+ 
+ and binding_op =
+@@ -373,6 +379,7 @@ and structure_item_desc =
+   | Tstr_primitive of value_description
+   | Tstr_type of rec_flag * type_declaration list
+   | Tstr_typext of type_extension
++  | Tstr_effect of extension_constructor
+   | Tstr_exception of type_exception
+   | Tstr_module of module_binding
+   | Tstr_recmodule of module_binding list
+@@ -449,6 +456,7 @@ and signature_item_desc =
+   | Tsig_type of rec_flag * type_declaration list
+   | Tsig_typesubst of type_declaration list
+   | Tsig_typext of type_extension
++  | Tsig_effect of extension_constructor
+   | Tsig_exception of type_exception
+   | Tsig_module of module_declaration
+   | Tsig_modsubst of module_substitution
+diff --git a/src/ocaml/typing/410+multicore/typemod.ml b/src/ocaml/typing/410+multicore/typemod.ml
+index a4093555..8c3a94f5 100644
+--- a/src/ocaml/typing/410+multicore/typemod.ml
++++ b/src/ocaml/typing/410+multicore/typemod.ml
+@@ -1325,6 +1325,24 @@ and transl_signature ?(keep_warnings = false) env sg =
+             Msupport.raise_error exn;
+             transl_sig env srem
+           end
++        | Psig_effect seff ->
++            begin match
++              let (_, _) as res = Typedecl.transl_effect env seff in
++              res
++            with
++            | (ext, newenv) ->
++            (* XXX KC: Should we care about Shadowed? *)
++              let (trem, rem, final_env) = transl_sig newenv srem in
++              mksig (Tsig_effect ext) env loc :: trem,
++              Sig_typext(ext.ext_id,
++                         ext.ext_type,
++                         Text_effect,
++                         Exported) :: rem,
++              final_env
++          | exception exn ->
++            Msupport.raise_error exn;
++            transl_sig env srem
++            end
+         | Psig_module pmd ->
+           let scope = Ctype.create_scope () in
+           begin match
+@@ -2309,6 +2327,11 @@ and type_structure ?(toplevel = false) ?(keep_warnings = false) funct_body ancho
+                     Text_exception,
+                     Exported)],
+         newenv
++    | Pstr_effect seff ->
++        let (ext, newenv) = Typedecl.transl_effect env seff in
++        Tstr_effect ext,
++        [Sig_typext(ext.ext_id, ext.ext_type, Text_effect, Exported)],
++        newenv
+     | Pstr_module {pmb_name = name; pmb_expr = smodl; pmb_attributes = attrs;
+                    pmb_loc;
+                   } ->
+diff --git a/src/ocaml/typing/410+multicore/types.ml b/src/ocaml/typing/410+multicore/types.ml
+index d941c901..270e925f 100644
+--- a/src/ocaml/typing/410+multicore/types.ml
++++ b/src/ocaml/typing/410+multicore/types.ml
+@@ -129,6 +129,7 @@ module Variance = struct
+   let may_inv = 7
+   let full = 127
+   let covariant = single May_pos lor single Pos lor single Inj
++  let contravariant = single May_neg lor single Neg lor single Inj
+   let swap f1 f2 v =
+     let v' = set f1 (mem f2 v) v in set f2 (mem f1 v) v'
+   let conjugate v = swap May_pos May_neg (swap Pos Neg v)
+@@ -303,6 +304,7 @@ and ext_status =
+     Text_first                     (* first constructor of an extension *)
+   | Text_next                      (* not first constructor of an extension *)
+   | Text_exception                 (* an exception *)
++  | Text_effect                    (* an effect *)
+ 
+ 
+ (* Constructor and record label descriptions inserted held in typing
+diff --git a/src/ocaml/typing/410+multicore/types.mli b/src/ocaml/typing/410+multicore/types.mli
+index 47ced5e4..b8f08877 100644
+--- a/src/ocaml/typing/410+multicore/types.mli
++++ b/src/ocaml/typing/410+multicore/types.mli
+@@ -273,6 +273,7 @@ module Variance : sig
+   val null : t                          (* no occurrence *)
+   val full : t                          (* strictly invariant *)
+   val covariant : t                     (* strictly covariant *)
++  val contravariant : t                 (* strictly contravariant *)
+   val may_inv : t                       (* maybe invariant *)
+   val union  : t -> t -> t
+   val inter  : t -> t -> t
+@@ -458,7 +459,7 @@ and ext_status =
+     Text_first                     (* first constructor in an extension *)
+   | Text_next                      (* not first constructor in an extension *)
+   | Text_exception
+-
++  | Text_effect
+ 
+ (* Constructor and record label descriptions inserted held in typing
+    environments *)
+diff --git a/src/ocaml/typing/410+multicore/untypeast.ml b/src/ocaml/typing/410+multicore/untypeast.ml
+index 727cdd4f..cfdcaf88 100644
+--- a/src/ocaml/typing/410+multicore/untypeast.ml
++++ b/src/ocaml/typing/410+multicore/untypeast.ml
+@@ -41,6 +41,8 @@ type mapper = {
+   expr: mapper -> T.expression -> expression;
+   extension_constructor: mapper -> T.extension_constructor
+                          -> extension_constructor;
++  effect_constructor: mapper -> T.extension_constructor
++                         -> effect_constructor;
+   include_declaration: mapper -> T.include_declaration -> include_declaration;
+   include_description: mapper -> T.include_description -> include_description;
+   label_declaration: mapper -> T.label_declaration -> label_declaration;
+@@ -178,6 +180,8 @@ let structure_item sub item =
+         Pstr_type (rec_flag, List.map (sub.type_declaration sub) list)
+     | Tstr_typext tyext ->
+         Pstr_typext (sub.type_extension sub tyext)
++    | Tstr_effect ext ->
++        Pstr_effect (sub.effect_constructor sub ext)
+     | Tstr_exception ext ->
+         Pstr_exception (sub.type_exception sub ext)
+     | Tstr_module mb ->
+@@ -290,6 +294,18 @@ let extension_constructor sub ext =
+       | Text_rebind (_p, lid) -> Pext_rebind (map_loc sub lid)
+     )
+ 
++let effect_constructor sub ext =
++  let loc = sub.location sub ext.ext_loc; in
++  let attrs = sub.attributes sub ext.ext_attributes in
++  Te.effect_constructor ~loc ~attrs
++    (map_loc sub ext.ext_name)
++    (match ext.ext_kind with
++      | Text_decl (Cstr_tuple l, Some ret) ->
++          Peff_decl (List.map (sub.typ sub) l, (sub.typ sub) ret)
++      | Text_rebind (_p, lid) -> Peff_rebind (map_loc sub lid)
++      | _ -> failwith "Untypast.effect_constructor"
++    )
++
+ let pattern sub pat =
+   let loc = sub.location sub pat.pat_loc in
+   (* todo: fix attributes on extras *)
+@@ -419,10 +435,32 @@ let expression sub exp =
+                 None -> list
+               | Some exp -> (label, sub.expr sub exp) :: list
+           ) list [])
+-    | Texp_match (exp, cases, _) ->
+-      Pexp_match (sub.expr sub exp, sub.cases sub cases)
+-    | Texp_try (exp, cases) ->
+-        Pexp_try (sub.expr sub exp, sub.cases sub cases)
++    | Texp_match (exp, cases, eff_cases, _) ->
++      let merged_cases = sub.cases sub cases
++        @ List.map
++          (fun c ->
++            let uc = sub.case sub c in
++            let pat = { uc.pc_lhs
++                        (* XXX KC: The 2nd argument of Ppat_effect is wrong *)
++                        with ppat_desc = Ppat_effect (uc.pc_lhs, uc.pc_lhs) }
++            in
++            { uc with pc_lhs = pat })
++          eff_cases
++      in
++      Pexp_match (sub.expr sub exp, merged_cases)
++    | Texp_try (exp, exn_cases, eff_cases) ->
++        let merged_cases = sub.cases sub exn_cases
++        @ List.map
++          (fun c ->
++            let uc = sub.case sub c in
++            let pat = { uc.pc_lhs
++                        (* XXX KC: The 2nd argument of Ppat_effect is wrong *)
++                        with ppat_desc = Ppat_effect (uc.pc_lhs, uc.pc_lhs) }
++            in
++            { uc with pc_lhs = pat })
++          eff_cases
++        in
++        Pexp_try (sub.expr sub exp, merged_cases)
+     | Texp_tuple list ->
+         Pexp_tuple (List.map (sub.expr sub) list)
+     | Texp_construct (lid, _, args) ->
+@@ -542,6 +580,8 @@ let signature_item sub item =
+         Psig_typesubst (List.map (sub.type_declaration sub) list)
+     | Tsig_typext tyext ->
+         Psig_typext (sub.type_extension sub tyext)
++    | Tsig_effect ext ->
++        Psig_effect (sub.effect_constructor sub ext)
+     | Tsig_exception ext ->
+         Psig_exception (sub.type_exception sub ext)
+     | Tsig_module md ->
+@@ -862,6 +902,7 @@ let default_mapper =
+     type_extension = type_extension;
+     type_exception = type_exception;
+     extension_constructor = extension_constructor;
++    effect_constructor = effect_constructor;
+     value_description = value_description;
+     pat = pattern;
+     expr = expression;
+diff --git a/src/ocaml/typing/410+multicore/untypeast.mli b/src/ocaml/typing/410+multicore/untypeast.mli
+index 58105345..732bd21c 100644
+--- a/src/ocaml/typing/410+multicore/untypeast.mli
++++ b/src/ocaml/typing/410+multicore/untypeast.mli
+@@ -39,6 +39,8 @@ type mapper = {
+   expr: mapper -> Typedtree.expression -> expression;
+   extension_constructor: mapper -> Typedtree.extension_constructor
+                          -> extension_constructor;
++  effect_constructor: mapper -> Typedtree.extension_constructor
++                         -> effect_constructor;
+   include_declaration:
+     mapper -> Typedtree.include_declaration -> include_declaration;
+   include_description:
+-- 
+2.29.2
+
