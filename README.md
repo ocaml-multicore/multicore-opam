@@ -25,6 +25,8 @@ opam install dune domainslib
 
 ## Install ocaml-lsp and merlin
 
+On Visual Studio Code, it is recommended to use `ocaml-lsp-server` with [VSCode OCaml Platform](https://marketplace.visualstudio.com/items?itemName=ocamllabs.ocaml-platform)
+
 **`parallel_minor_gc`**
 
 ```
