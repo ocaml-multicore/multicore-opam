@@ -5,12 +5,16 @@ OPAM repo for OCaml multicore development
 
 **`parallel_minor_gc`**
 
+This version includes support for domains and effect handlers.
+
 ```
 opam update
 opam switch create 4.10.0+multicore --packages=ocaml-variants.4.10.0+multicore --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
 ```
 
 **`no_effect_syntax`**
+
+This version includes support for domains, but does not have the syntax extensions for supporting effect handlers. This plays nicely with the ppx ecosystem, but you cannot use effect handlers.
 
 ```
 opam update
