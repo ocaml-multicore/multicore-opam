@@ -31,15 +31,20 @@ opam install dune domainslib
 
 On Visual Studio Code, it is recommended to use `ocaml-lsp-server` with [VSCode OCaml Platform](https://marketplace.visualstudio.com/items?itemName=ocamllabs.ocaml-platform)
 
-**`4.12+domains+effects`**
+**`4.10.0+multicore`**
 
 ```
 opam install dune merlin.3.4.1 dot-merlin-reader.3.4.1 ocaml-lsp-server
 ```
 
-**`4.12+domains`**
+**`4.10.0+multicore+no-effect-syntax`**
 
 ```
 opam install dune merlin.3.4.1 dot-merlin-reader.3.4.1
 opam pin add ocaml-lsp-server --repositories=default
+```
+**`4.12+domains` and `4.12+domains+effects`**
+
+```
+opam install dune merlin ocaml-lsp-server
 ```
