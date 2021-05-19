@@ -6,6 +6,8 @@ depends: [
   "base-unix" {post}
   "base-bigarray" {post}
   "base-threads" {post}
+  "base-domains" {post}
+  "base-effects" {post}
   "ocaml-option-nnp"
 ]
 conflict-class: "ocaml-core-compiler"
@@ -44,7 +46,7 @@ build: [
 ]
 install: [make "install"]
 url {
-  src: "https://github.com/ocamllabs/ocaml-multicore/archive/4.12+domains+effects.tar.gz"
+  src: "git+https://github.com/ocaml-multicore/ocaml-multicore.git#4.12+domains+effects"
 }
 conflicts: [
   "ocaml-options-vanilla"   # This is not vanilla OCaml!

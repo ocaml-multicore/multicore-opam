@@ -16,6 +16,7 @@ build: [
 depends: [
   "dune" {>= "1.11"}
   "ocaml" {>= "4.02.3" & < "4.13"}
+  "base-effects"
 ]
 synopsis: "Convert OCaml parsetrees between different versions"
 description: """

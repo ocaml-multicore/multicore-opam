@@ -11,6 +11,7 @@ build: [
 ]
 depends: [
   "ocaml" {>= "4.08"}
+  "base-domains"
   "base"                {>= "v0.14" & < "v0.15"}
   "base_bigstring"      {>= "v0.14" & < "v0.15"}
   "base_quickcheck"     {>= "v0.14" & < "v0.15"}
