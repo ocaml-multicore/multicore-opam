@@ -30,6 +30,7 @@ remove: [
 depends: [
   "ocaml" {>= "4.03.0"}
   "ocamlfind"
+  "base-domains"
 ]
 flags: light-uninstall
 url {

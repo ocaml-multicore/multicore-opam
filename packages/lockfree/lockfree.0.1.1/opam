@@ -7,7 +7,7 @@ license: "ISC"
 dev-repo: "git+https://github.com/kayceesrk/lockfree.git"
 bug-reports: "https://github.com/kayceesrk/lockfree/issues"
 depends: [
-  "ocaml" {>= "4.01.0"}
+  "ocaml" {>= "4.01.0" & < "4.07.0"}
   "ocamlfind" {build}
   "ocamlbuild" {build}
   "topkg" {build}

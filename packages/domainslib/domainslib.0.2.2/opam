@@ -11,6 +11,7 @@ tags: []
 depends: [
   "ocamlfind" {build}
   "dune" {build}
+  "base-domains"
 ]
 depopts: []
 build: [

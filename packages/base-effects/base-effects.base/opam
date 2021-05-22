@@ -6,4 +6,5 @@ Effects-based variant distributed with the Multicore OCaml compiler"
 depends: [
  "ocaml" {>= "4.12.0"}
  "ocaml-variants" {="4.12.0+domains+effects"}
+ "base-domains"
 ]

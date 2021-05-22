@@ -7,7 +7,7 @@ license: "ISC"
 dev-repo: "git+https://github.com/kayceesrk/kcas.git"
 bug-reports: "https://github.com/kayceesrk/kcas/issues"
 depends: [
-  "ocaml" {>= "4.01.0"}
+  "ocaml" {>= "4.01.0" & < "4.07.0"}
   "ocamlfind" {build}
   "ocamlbuild" {build}
   "topkg" {build}

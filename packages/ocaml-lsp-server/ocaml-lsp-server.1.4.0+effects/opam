@@ -27,6 +27,7 @@ depends: [
   "ocamlfind" {>= "1.5.2"}
   "odoc" {with-doc}
   "ocaml" {>= "4.06" & < "4.12"}
+  "base-effects"
 ]
 dev-repo: "git+https://github.com/mattpallissard/ocaml-lsp.git"
 build: [

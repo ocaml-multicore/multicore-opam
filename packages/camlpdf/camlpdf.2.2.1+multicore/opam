@@ -7,7 +7,11 @@ dev-repo: "git://github.com/johnwhitington/camlpdf"
 build: [[make]]
 install: [[make "install"]]
 remove: [["ocamlfind" "remove" "camlpdf"]]
-depends: ["ocaml" "ocamlfind"]
+depends: [
+  "ocaml" 
+  "ocamlfind" 
+  "base-domains"
+]
 patches: "unsafe_string.patch" {ocaml:version >= "4.06"}
 synopsis: "Read, write and modify PDF files"
 flags: light-uninstall

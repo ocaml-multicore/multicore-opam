@@ -17,6 +17,7 @@ depends: [
   "result"
   "ocamlfind" {build}
   "jbuilder" {build & >= "1.0+beta18.1"}
+  "base-effects"
 ]
 synopsis: "Convert OCaml parsetrees between different versions"
 description: """
