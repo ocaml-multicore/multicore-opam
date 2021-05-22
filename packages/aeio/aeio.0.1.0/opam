@@ -12,6 +12,7 @@ depends: [
   "ocamlbuild" {build}
   "topkg" {build}
   "lwt" {= "2.5.1"}
+  "base-domains"
 ]
 build: [
   "ocaml" "pkg/pkg.ml" "build"
