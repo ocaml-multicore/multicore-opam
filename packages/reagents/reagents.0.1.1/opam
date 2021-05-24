@@ -13,6 +13,7 @@ depends: [
   "topkg" {build}
   "lockfree" {>= "0.1.0"}
   "kcas" {>= "0.1.2"}
+  "base-domains"
 ]
 build: [
   "ocaml" "pkg/pkg.ml" "build"

@@ -6,6 +6,7 @@ depends: [
   "base-unix" {post}
   "base-bigarray" {post}
   "base-threads" {post}
+  "base-domains" {post}
 ]
 depexts: [
   ["musl-tools"] {os-family = "debian"}

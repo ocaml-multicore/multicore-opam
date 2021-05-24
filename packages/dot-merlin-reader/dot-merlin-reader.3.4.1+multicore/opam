@@ -11,6 +11,7 @@ build: [
 ]
 depends: [
   "ocaml" {>= "4.02.1" & < "4.12"}
+  "base-effects" # this makes this package uninstallable due to needing ocaml 4.12, needs to shift to latest version
   "dune" {>= "1.8.0"}
   "yojson" {>= "1.6.0"}
   "ocamlfind" {>= "1.6.0"}

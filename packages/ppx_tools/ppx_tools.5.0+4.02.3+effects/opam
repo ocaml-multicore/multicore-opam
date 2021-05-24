@@ -12,6 +12,7 @@ remove: [["ocamlfind" "remove" "ppx_tools"]]
 depends: [
   "ocaml" {>= "4.02.0" & < "4.03.0"}
   "ocamlfind" {>= "1.5.0"}
+  "base-domains"
 ]
 synopsis: "Tools for authors of ppx rewriters and other syntactic tools"
 flags: light-uninstall

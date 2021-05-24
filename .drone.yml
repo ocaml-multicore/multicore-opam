@@ -1,18 +1,14 @@
 kind: pipeline
-name: 4.10.0+multicore-opam
+name: 4.12.0+domains
 
 platform:
   os: linux
   arch: amd64
 
 steps:
-- name: 4.10.0+multicore-opam
-  image: ocurrent/opam:ubuntu-18.04-ocaml-4.10
+- name: 4.12.0+domains
+  image: ocaml/opam:debian-10-ocaml-4.12-domains
   commands:
-  - opam update
-  - opam switch create 4.10.0+multicore --packages=ocaml-variants.4.10.0+multicore --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
+  - opam repo add --set-default .
   - eval $(opam env)
-  - opam --version
-  - opam switch
-  - opam list
-  - opam install dune domainslib
+  - opam install -y dune domainslib

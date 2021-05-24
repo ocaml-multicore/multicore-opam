@@ -10,9 +10,8 @@ dev-repo: "git+https://github.com/kayceesrk/kcas.git"
 bug-reports: "https://github.com/kayceesrk/kcas/issues"
 depends: [
   "ocaml"
-  "ocamlfind" {build}
-  "ocamlbuild" {build}
-  "dune" {build}
+  "dune"
+  "base-domains"
 ]
 build: [
   ["dune" "build" "-p" name]
