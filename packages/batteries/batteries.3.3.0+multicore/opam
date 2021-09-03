@@ -27,5 +27,5 @@ depends: [
   "base-domains"
 ]
 url {
-  src: "https://github.com/kit-ty-kate/batteries-included/archive/multicore.tar.gz"
+  src: "https://github.com/kit-ty-kate/batteries-included/archive/500.tar.gz"
 }
